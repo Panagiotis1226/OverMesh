@@ -43,6 +43,9 @@ check_not() {
 OK=0
 cleanup() {
   set +e
+  # Kill this run's daemons (they are not netns-bound processes and
+  # would otherwise linger, spamming reconnect errors into kept logs).
+  pkill -f "socket $WORK" 2>/dev/null
   for n in $SRV $A $B $NET; do ip netns del "$n" 2>/dev/null; done
   [ -n "${SRV_PID:-}" ] && kill "$SRV_PID" 2>/dev/null
   if [ "$OK" = 1 ]; then
@@ -135,8 +138,20 @@ check "overmesh inbox lists it on B" bash -c \
 log "interrupt + resume: kill the sender mid-transfer of a 400 MiB file"
 head -c 419430400 /dev/urandom > "$WORK/big.iso"
 SUM_BIG=$(sha256sum "$WORK/big.iso" | cut -d' ' -f1)
-timeout -s KILL 1 ip netns exec $A "$BIN/overmesh" drop -socket "$WORK/a.sock" \
-  "$WORK/big.iso" node-b >/dev/null 2>&1 || true
+# Deterministic interrupt: wait until the receiver's .part is
+# verifiably growing (>=50 MiB), then kill the sender. A fixed-delay
+# kill races the transfer SETUP (WG handshake + offset roundtrip) on
+# slow machines and can fire before the first byte lands.
+ip netns exec $A "$BIN/overmesh" drop -socket "$WORK/a.sock" \
+  "$WORK/big.iso" node-b >/dev/null 2>&1 &
+DROP_PID=$!
+for _ in $(seq 1 200); do
+  P=$(stat -c %s "$INBOX_B"/node-a/big.iso.*.part 2>/dev/null || echo 0)
+  [ "${P:-0}" -ge 52428800 ] && break
+  sleep 0.1
+done
+kill -9 $DROP_PID 2>/dev/null || true
+wait $DROP_PID 2>/dev/null || true
 check "partial .part staged on B after the kill" bash -c \
   "ls '$INBOX_B/node-a/' | grep -q 'big.iso.*.part'"
 check_not "final file NOT present yet" test -f "$INBOX_B/node-a/big.iso"

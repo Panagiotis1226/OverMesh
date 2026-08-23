@@ -101,6 +101,12 @@ func (c *Coordinator) Register(mkey key.MachinePublic, nkey key.NodePublic, setu
 				newName = hostname
 			}
 		}
+		if n.NodeKey != nkey.String() {
+			// The device rotated its WireGuard key; peers get the new
+			// one with the netmap push below.
+			log.Printf("coord: %s rotated its node key", n.Hostname)
+			_ = c.st.Audit(ownerName(c.st, n.OwnerUserID), "device.key-rotated", n.Hostname, "")
+		}
 		if err := c.st.UpdateNodeOnRegister(n.ID, nkey.String(), newName, osName); err != nil {
 			return store.Node{}, store.Network{}, err
 		}
@@ -124,7 +130,7 @@ func (c *Coordinator) Register(mkey key.MachinePublic, nkey key.NodePublic, setu
 	if setupKey == "" {
 		return store.Node{}, store.Network{}, fmt.Errorf("unknown device: a setup key is required to join")
 	}
-	nw, err := c.st.UseSetupKey(setupKey)
+	nw, ownerID, err := c.st.UseSetupKey(setupKey)
 	if err != nil {
 		return store.Node{}, store.Network{}, err
 	}
@@ -142,13 +148,14 @@ func (c *Coordinator) Register(mkey key.MachinePublic, nkey key.NodePublic, setu
 	hostname = c.dedupeHostname(nw.ID, hostname)
 
 	n, err := c.st.CreateNode(store.Node{
-		NetworkID:  nw.ID,
-		Hostname:   hostname,
-		MachineKey: mkey.String(),
-		NodeKey:    nkey.String(),
-		IPv4:       v4,
-		IPv6:       v4, // placeholder until we know the node ID
-		OS:         osName,
+		NetworkID:   nw.ID,
+		Hostname:    hostname,
+		MachineKey:  mkey.String(),
+		NodeKey:     nkey.String(),
+		IPv4:        v4,
+		IPv6:        v4, // placeholder until we know the node ID
+		OS:          osName,
+		OwnerUserID: ownerID, // device belongs to the setup key's owner
 	})
 	if err != nil {
 		alloc.Release(v4)
@@ -170,8 +177,21 @@ func (c *Coordinator) Register(mkey key.MachinePublic, nkey key.NodePublic, setu
 	}
 
 	log.Printf("coord: registered %s (%s, %s) in %s as %s/%s", n.Hostname, osName, mkey, nw.Name, n.IPv4, n.IPv6)
+	_ = c.st.Audit(ownerName(c.st, ownerID), "device.register", n.Hostname,
+		fmt.Sprintf("os=%s ip=%s", osName, n.IPv4))
 	c.notifyNetworkLocked(nw.ID)
 	return n, nw, nil
+}
+
+// ownerName resolves a user id for audit lines ("admin" for legacy 0).
+func ownerName(st *store.Store, userID int64) string {
+	if userID == 0 {
+		return "admin"
+	}
+	if u, err := st.UserByID(userID); err == nil {
+		return u.Username
+	}
+	return fmt.Sprintf("user#%d", userID)
 }
 
 // dedupeHostname appends -2, -3, ... until the name is free. Held: c.mu.

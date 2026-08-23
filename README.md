@@ -2,7 +2,7 @@
 
 A fully self-hostable **WireGuard-based overlay mesh VPN** — control plane included — in the Tailscale / NetBird class.
 
-> Status: **Phase 6 complete** — **OverDrop** file transfer, packaging, and a macOS menu bar app scaffold. `overmesh drop backup.tar server-1` streams any file to a peer over the tunnel — resumable (kill it mid-transfer, rerun, it continues where it stopped), works over the relay path too, sender identity is WireGuard-cryptographic (the overlay source address), and access rules can block it like any other traffic (deny tcp/41645). Received files land in a per-sender inbox (`overmesh inbox`). Packaging shipped: deb/rpm packages with a systemd unit built on every CI run, a control-plane Dockerfile + compose file, and a Homebrew formula template. Phase 5 delivered subnet routers + exit nodes approval-gated in the web UI. See [`docs/PLAN.md`](docs/PLAN.md).
+> Status: **Phase 7 complete** — user accounts, roles, key rotation, and an audit log (local accounts; no SSO required). Log in with username + password; admins create accounts in the web UI, and an optional toggle opens a self-signup page. **Members see and manage only their own devices** — devices enroll under the account whose setup key they used — while ACLs, route approvals, and user management stay admin-only. `overmesh rotate-key` swaps a device's WireGuard key live (peers re-handshake in seconds, connectivity proven in CI), and every security-relevant action (logins, user/key/device changes, rule and route edits, rotations) lands in a read-only audit log in the web UI. Phase 6 delivered OverDrop file transfer + packaging. See [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Quickstart (LAN)
 
@@ -67,7 +67,7 @@ Go (server, daemon, CLI, relay) · wireguard-go + wgctrl · pion/stun + pion/ice
 | 4 | Overlay DNS + visual ACL builder in the web UI |
 | 5 | Exit nodes, subnet routers, web-UI route approval, MTU tuning, bench harness |
 | 6 | OverDrop file transfer + packaging (deb/rpm/docker/brew) + macOS menu bar scaffold |
-| 7 | OIDC SSO, roles, key rotation, audit log |
+| 7 | User accounts (login/signup) + roles, node key rotation, audit log |
 | 8 | Windows client (WireGuardNT) |
 | 9 | iOS + Android (gomobile + netstack) |
 | 10 | Hardening, metrics, HA, security review → 1.0 |

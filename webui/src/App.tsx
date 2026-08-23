@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, ApiError, ACLRule, Device, SetupKey, ServerStatus } from './api'
+import { api, ApiError, ACLRule, AuditEntry, Device, SetupKey, ServerStatus, User } from './api'
 
 type Auth = 'checking' | 'login' | 'ready'
 
@@ -39,19 +39,27 @@ export default function App() {
 }
 
 function Login({ onSuccess }: { onSuccess: () => Promise<void> }) {
+  const [mode, setMode] = useState<'login' | 'signup'>('login')
+  const [signupOn, setSignupOn] = useState(false)
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    api.authInfo().then((i) => setSignupOn(i.signup_enabled)).catch(() => {})
+  }, [])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setBusy(true)
     setError('')
     try {
-      await api.login(password)
+      if (mode === 'signup') await api.signup(username, password)
+      else await api.login(username || 'admin', password)
       await onSuccess()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'login failed')
+      setError(err instanceof ApiError ? err.message : `${mode} failed`)
       setBusy(false)
     }
   }
@@ -60,16 +68,33 @@ function Login({ onSuccess }: { onSuccess: () => Promise<void> }) {
     <div className="center">
       <form className="card login" onSubmit={submit}>
         <Logo />
-        <p className="muted">Sign in to manage your mesh</p>
+        <p className="muted">{mode === 'signup' ? 'Create your account' : 'Sign in to manage your mesh'}</p>
         <input
-          type="password"
-          placeholder="admin password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          type="text"
+          placeholder={mode === 'signup' ? 'choose a username' : 'username (admin)'}
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
           autoFocus
         />
+        <input
+          type="password"
+          placeholder={mode === 'signup' ? 'choose a password (8+ chars)' : 'password'}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
         {error && <div className="error">{error}</div>}
-        <button disabled={busy || !password}>{busy ? 'signing in…' : 'sign in'}</button>
+        <button disabled={busy || !password || (mode === 'signup' && !username)}>
+          {busy ? '…' : mode === 'signup' ? 'create account' : 'sign in'}
+        </button>
+        {signupOn && (
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError('') }}
+          >
+            {mode === 'login' ? 'new here? create an account' : 'back to sign in'}
+          </button>
+        )}
       </form>
     </div>
   )
@@ -98,6 +123,7 @@ function Dashboard({ server, onLogout }: { server: ServerStatus; onLogout: () =>
     return () => clearInterval(t)
   }, [refresh])
 
+  const admin = server.role === 'admin'
   return (
     <div className="page">
       <header>
@@ -107,15 +133,20 @@ function Dashboard({ server, onLogout }: { server: ServerStatus; onLogout: () =>
           {server.dns_domain && <> · dns <b>{server.dns_domain}</b></>}
         </div>
         <div className="spacer" />
+        <span className="muted">
+          {server.username} <span className="pill offline">{server.role}</span>
+        </span>
         <span className="muted version">{server.version}</span>
         <button className="ghost" onClick={onLogout}>
           log out
         </button>
       </header>
       {error && <div className="error banner">{error}</div>}
-      <Devices devices={devices} onChanged={refresh} />
-      <AccessRules devices={devices} />
-      <SetupKeys keys={keys} onChanged={refresh} />
+      <Devices devices={devices} onChanged={refresh} admin={admin} />
+      {admin && <AccessRules devices={devices} />}
+      <SetupKeys keys={keys} onChanged={refresh} admin={admin} />
+      {admin && <Users signupEnabled={server.signup_enabled} />}
+      {admin && <Audit />}
       <footer className="muted">
         Join a device: <code>overmesh up -server &lt;this-host&gt;:41641 -key sk-…</code>
       </footer>
@@ -123,7 +154,7 @@ function Dashboard({ server, onLogout }: { server: ServerStatus; onLogout: () =>
   )
 }
 
-function Devices({ devices, onChanged }: { devices: Device[]; onChanged: () => void }) {
+function Devices({ devices, onChanged, admin }: { devices: Device[]; onChanged: () => void; admin: boolean }) {
   const remove = async (d: Device) => {
     if (!confirm(`Remove ${d.hostname} from the mesh? It will lose connectivity immediately.`)) return
     await api.deleteDevice(d.id)
@@ -142,6 +173,7 @@ function Devices({ devices, onChanged }: { devices: Device[]; onChanged: () => v
   }
 
   const anyRoutes = devices.some((d) => (d.routes?.length ?? 0) > 0)
+  const anyOwners = admin && devices.some((d) => d.owner && d.owner !== 'admin')
 
   return (
     <section className="card">
@@ -158,6 +190,7 @@ function Devices({ devices, onChanged }: { devices: Device[]; onChanged: () => v
               <th>overlay IPv4</th>
               <th>overlay IPv6</th>
               <th>os</th>
+              {anyOwners && <th>owner</th>}
               {anyRoutes && <th>routes</th>}
               <th>state</th>
               <th>last seen</th>
@@ -175,6 +208,7 @@ function Devices({ devices, onChanged }: { devices: Device[]; onChanged: () => v
                   <code>{d.ipv6}</code>
                 </td>
                 <td>{d.os}</td>
+                {anyOwners && <td className="muted">{d.owner}</td>}
                 {anyRoutes && (
                   <td>
                     <div className="chips">
@@ -184,11 +218,14 @@ function Devices({ devices, onChanged }: { devices: Device[]; onChanged: () => v
                           <button
                             key={r.route}
                             className={r.approved ? 'chip on' : 'chip'}
+                            disabled={!admin}
                             title={
-                              (r.approved ? 'Approved — click to revoke' : 'Awaiting approval — click to approve') +
-                              (isExit ? ' (exit node)' : '')
+                              admin
+                                ? (r.approved ? 'Approved — click to revoke' : 'Awaiting approval — click to approve') +
+                                  (isExit ? ' (exit node)' : '')
+                                : 'Only admins approve routes'
                             }
-                            onClick={() => toggleRoute(d, r.route, !r.approved)}
+                            onClick={() => admin && toggleRoute(d, r.route, !r.approved)}
                           >
                             {isExit ? `exit node (${r.route})` : r.route}
                             {r.approved ? ' ✓' : ' ?'}
@@ -218,7 +255,7 @@ function Devices({ devices, onChanged }: { devices: Device[]; onChanged: () => v
   )
 }
 
-function SetupKeys({ keys, onChanged }: { keys: SetupKey[]; onChanged: () => void }) {
+function SetupKeys({ keys, onChanged, admin }: { keys: SetupKey[]; onChanged: () => void; admin: boolean }) {
   const [reusable, setReusable] = useState(true)
   const [expires, setExpires] = useState(0)
   const [creating, setCreating] = useState(false)
@@ -258,13 +295,13 @@ function SetupKeys({ keys, onChanged }: { keys: SetupKey[]; onChanged: () => voi
       </div>
       {keys.length === 0 && <p className="muted">No setup keys yet.</p>}
       {[...active, ...inactive].map((k) => (
-        <KeyRow key={k.id} k={k} onChanged={onChanged} />
+        <KeyRow key={k.id} k={k} onChanged={onChanged} admin={admin} />
       ))}
     </section>
   )
 }
 
-function KeyRow({ k, onChanged }: { k: SetupKey; onChanged: () => void }) {
+function KeyRow({ k, onChanged, admin }: { k: SetupKey; onChanged: () => void; admin: boolean }) {
   const [copied, setCopied] = useState(false)
   const timer = useRef<number>(0)
   const dead = k.revoked || k.expired
@@ -280,6 +317,7 @@ function KeyRow({ k, onChanged }: { k: SetupKey; onChanged: () => void }) {
     <div className={dead ? 'keyrow dead' : 'keyrow'}>
       <code className="key">{k.key}</code>
       <span className="muted tags">
+        {admin && k.owner && k.owner !== 'admin' && `${k.owner} · `}
         {k.reusable ? 'reusable' : 'single-use'}
         {k.used_count > 0 && ` · used ${k.used_count}×`}
         {k.expires_at > 0 && !k.expired && ` · expires ${ago(k.expires_at)}`}
@@ -517,6 +555,149 @@ function RuleTester({ devices, dirty }: { devices: Device[]; dirty: boolean }) {
       )}
       {dirty && result !== null && <span className="muted small">(tests run against saved rules)</span>}
     </div>
+  )
+}
+
+// Users: admin-only account management + the open-signup toggle.
+function Users({ signupEnabled }: { signupEnabled: boolean }) {
+  const [users, setUsers] = useState<User[]>([])
+  const [signup, setSignup] = useState(signupEnabled)
+  const [name, setName] = useState('')
+  const [pw, setPw] = useState('')
+  const [role, setRole] = useState('member')
+  const [error, setError] = useState('')
+
+  const refresh = useCallback(() => {
+    api.users().then(setUsers).catch(() => {})
+  }, [])
+  useEffect(refresh, [refresh])
+
+  const act = async (fn: () => Promise<unknown>) => {
+    setError('')
+    try {
+      await fn()
+      refresh()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'request failed')
+    }
+  }
+
+  return (
+    <section className="card">
+      <h2>
+        Users <span className="count">{users.length}</span>
+        <div className="spacer" />
+        <label className="muted small" title="When on, anyone who can reach this page can create a member account">
+          <input
+            type="checkbox"
+            checked={signup}
+            onChange={(e) => act(async () => {
+              await api.setSignup(e.target.checked)
+              setSignup(e.target.checked)
+            })}
+          />{' '}
+          open signup page
+        </label>
+      </h2>
+      <div className="keybar">
+        <input className="ports" placeholder="username" value={name}
+          onChange={(e) => setName(e.target.value)} />
+        <input className="ports" type="password" placeholder="password (8+ chars)" value={pw}
+          onChange={(e) => setPw(e.target.value)} />
+        <select value={role} onChange={(e) => setRole(e.target.value)}>
+          <option value="member">member</option>
+          <option value="admin">admin</option>
+        </select>
+        <button disabled={!name || pw.length < 8}
+          onClick={() => act(async () => {
+            await api.createUser(name, pw, role)
+            setName(''); setPw('')
+          })}>
+          + add user
+        </button>
+      </div>
+      {error && <div className="error">{error}</div>}
+      {users.map((u) => (
+        <div key={u.id} className={u.disabled ? 'keyrow dead' : 'keyrow'}>
+          <span className="name">{u.username}</span>
+          <select value={u.role}
+            onChange={(e) => act(() => api.updateUser(u.id, { role: e.target.value }))}>
+            <option value="admin">admin</option>
+            <option value="member">member</option>
+          </select>
+          <span className="muted tags">
+            {u.disabled && 'disabled · '}created {ago(u.created)}
+          </span>
+          <div className="spacer" />
+          <button className="ghost" onClick={() => {
+            const p = prompt(`New password for ${u.username} (8+ chars):`)
+            if (p) act(() => api.updateUser(u.id, { password: p }))
+          }}>
+            reset password
+          </button>
+          <button className="ghost" onClick={() => act(() => api.updateUser(u.id, { disabled: !u.disabled }))}>
+            {u.disabled ? 'enable' : 'disable'}
+          </button>
+          <button className="ghost danger" onClick={() => {
+            if (confirm(`Delete user ${u.username}? Their devices stay in the mesh (admin-owned).`))
+              act(() => api.deleteUser(u.id))
+          }}>
+            delete
+          </button>
+        </div>
+      ))}
+      <p className="muted small">
+        Members see and manage only their own devices and setup keys; devices enroll under
+        the account whose setup key they use.
+      </p>
+    </section>
+  )
+}
+
+// Audit: read-only trail of security-relevant actions.
+function Audit() {
+  const [entries, setEntries] = useState<AuditEntry[]>([])
+  const [open, setOpen] = useState(false)
+
+  const refresh = useCallback(() => {
+    api.audit(100).then(setEntries).catch(() => {})
+  }, [])
+  useEffect(() => {
+    if (open) refresh()
+  }, [open, refresh])
+
+  return (
+    <section className="card">
+      <h2>
+        Audit log
+        <div className="spacer" />
+        <button className="ghost" onClick={() => (open ? refresh() : setOpen(true))}>
+          {open ? 'refresh' : 'show'}
+        </button>
+      </h2>
+      {!open ? (
+        <p className="muted small">Logins, user changes, key/device events, rule and route changes.</p>
+      ) : entries.length === 0 ? (
+        <p className="muted">No entries yet.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr><th>when</th><th>who</th><th>action</th><th>target</th><th>details</th></tr>
+          </thead>
+          <tbody>
+            {entries.map((e) => (
+              <tr key={e.id}>
+                <td className="muted">{ago(e.ts)}</td>
+                <td className="name">{e.username}</td>
+                <td><code>{e.action}</code></td>
+                <td>{e.target}</td>
+                <td className="muted">{e.details}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
   )
 }
 

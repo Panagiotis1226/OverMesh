@@ -92,6 +92,11 @@ func (e *kernelEngine) SetPeerEndpoint(publicKey [32]byte, endpoint netip.AddrPo
 	})
 }
 
+func (e *kernelEngine) SetPrivateKey(privateKey [32]byte) error {
+	priv := wgtypes.Key(privateKey)
+	return e.wg.ConfigureDevice(e.name, wgtypes.Config{PrivateKey: &priv})
+}
+
 // SetFilter is unenforceable on the kernel data plane (packets never
 // transit this process); the daemon warns when rules exist in kernel
 // mode.

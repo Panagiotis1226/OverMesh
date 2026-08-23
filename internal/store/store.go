@@ -84,6 +84,9 @@ type Node struct {
 	Endpoints  []string
 	CreatedAt  time.Time
 	LastSeen   time.Time
+	// OwnerUserID is the account whose setup key enrolled the device
+	// (0 = legacy/unowned; only admins see those).
+	OwnerUserID int64
 }
 
 // SetupKey is a pre-auth key that lets a device join a network.
@@ -96,6 +99,9 @@ type SetupKey struct {
 	ExpiresAt time.Time // zero = never
 	UsedCount int
 	CreatedAt time.Time
+	// OwnerUserID: devices enrolled with this key belong to this
+	// account (0 = legacy/admin).
+	OwnerUserID int64
 }
 
 // Open opens (creating if needed) the database at path.
@@ -109,11 +115,39 @@ func Open(path string) (*Store, error) {
 	// modernc/sqlite serializes writes; a single connection avoids
 	// SQLITE_BUSY entirely at Phase-1 scale.
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema + aclSchema + routesSchema); err != nil {
+	if _, err := db.Exec(schema + aclSchema + routesSchema + usersSchema + auditSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("applying schema: %w", err)
 	}
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrating schema: %w", err)
+	}
 	return &Store{db: db}, nil
+}
+
+// migrate applies additive column changes to databases created by
+// earlier phases. SQLite has no ADD COLUMN IF NOT EXISTS, so probe.
+func migrate(db *sql.DB) error {
+	for _, m := range []struct{ table, column, ddl string }{
+		{"nodes", "owner_user_id",
+			`ALTER TABLE nodes ADD COLUMN owner_user_id INTEGER NOT NULL DEFAULT 0`},
+		{"setup_keys", "owner_user_id",
+			`ALTER TABLE setup_keys ADD COLUMN owner_user_id INTEGER NOT NULL DEFAULT 0`},
+	} {
+		var n int
+		err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`,
+			m.table, m.column).Scan(&n)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err := db.Exec(m.ddl); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // Close closes the database.
@@ -202,10 +236,10 @@ func (s *Store) CreateNode(n Node) (Node, error) {
 	}
 	now := time.Now()
 	res, err := s.db.Exec(`INSERT INTO nodes
-		(network_id, hostname, machine_key, node_key, ipv4, ipv6, os, endpoints, created_at, last_seen)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+		(network_id, hostname, machine_key, node_key, ipv4, ipv6, os, endpoints, created_at, last_seen, owner_user_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
 		n.NetworkID, n.Hostname, n.MachineKey, n.NodeKey,
-		n.IPv4.String(), n.IPv6.String(), n.OS, string(eps), now.Unix())
+		n.IPv4.String(), n.IPv6.String(), n.OS, string(eps), now.Unix(), n.OwnerUserID)
 	if err != nil {
 		return Node{}, err
 	}
@@ -224,14 +258,14 @@ func (s *Store) NodeByID(id int64) (Node, error) {
 	return s.scanNode(`SELECT ` + nodeCols + ` FROM nodes WHERE id = ?`, id)
 }
 
-const nodeCols = `id, network_id, hostname, machine_key, node_key, ipv4, ipv6, os, endpoints, created_at, last_seen`
+const nodeCols = `id, network_id, hostname, machine_key, node_key, ipv4, ipv6, os, endpoints, created_at, last_seen, owner_user_id`
 
 func (s *Store) scanNode(q string, args ...any) (Node, error) {
 	var n Node
 	var ipv4, ipv6, eps string
 	var created, seen int64
 	err := s.db.QueryRow(q, args...).Scan(&n.ID, &n.NetworkID, &n.Hostname, &n.MachineKey,
-		&n.NodeKey, &ipv4, &ipv6, &n.OS, &eps, &created, &seen)
+		&n.NodeKey, &ipv4, &ipv6, &n.OS, &eps, &created, &seen, &n.OwnerUserID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return n, ErrNotFound
 	}
@@ -272,7 +306,7 @@ func (s *Store) NodesInNetwork(networkID int64) ([]Node, error) {
 		var ipv4, ipv6, eps string
 		var created, seen int64
 		if err := rows.Scan(&n.ID, &n.NetworkID, &n.Hostname, &n.MachineKey, &n.NodeKey,
-			&ipv4, &ipv6, &n.OS, &eps, &created, &seen); err != nil {
+			&ipv4, &ipv6, &n.OS, &eps, &created, &seen, &n.OwnerUserID); err != nil {
 			return nil, err
 		}
 		if err := hydrateNode(&n, ipv4, ipv6, eps, created, seen); err != nil {
@@ -335,25 +369,28 @@ func (s *Store) HostnameTaken(networkID int64, hostname string) (bool, error) {
 
 // --- setup keys ---
 
-// NewSetupKey generates, stores, and returns a fresh setup key.
-func (s *Store) NewSetupKey(networkID int64, reusable bool, expiresAt time.Time) (SetupKey, error) {
+// NewSetupKey generates, stores, and returns a fresh setup key owned by
+// ownerUserID (devices enrolled with it belong to that account; 0 =
+// legacy/admin).
+func (s *Store) NewSetupKey(networkID int64, reusable bool, expiresAt time.Time, ownerUserID int64) (SetupKey, error) {
 	raw := make([]byte, 24)
 	if _, err := rand.Read(raw); err != nil {
 		return SetupKey{}, err
 	}
 	k := SetupKey{
-		NetworkID: networkID,
-		Key:       "sk-" + hex.EncodeToString(raw),
-		Reusable:  reusable,
-		ExpiresAt: expiresAt,
-		CreatedAt: time.Now(),
+		NetworkID:   networkID,
+		Key:         "sk-" + hex.EncodeToString(raw),
+		Reusable:    reusable,
+		ExpiresAt:   expiresAt,
+		CreatedAt:   time.Now(),
+		OwnerUserID: ownerUserID,
 	}
 	var exp int64
 	if !expiresAt.IsZero() {
 		exp = expiresAt.Unix()
 	}
-	res, err := s.db.Exec(`INSERT INTO setup_keys (network_id, key, reusable, revoked, expires_at, used_count, created_at)
-		VALUES (?, ?, ?, 0, ?, 0, ?)`, networkID, k.Key, boolInt(reusable), exp, k.CreatedAt.Unix())
+	res, err := s.db.Exec(`INSERT INTO setup_keys (network_id, key, reusable, revoked, expires_at, used_count, created_at, owner_user_id)
+		VALUES (?, ?, ?, 0, ?, 0, ?, ?)`, networkID, k.Key, boolInt(reusable), exp, k.CreatedAt.Unix(), ownerUserID)
 	if err != nil {
 		return SetupKey{}, err
 	}
@@ -361,9 +398,11 @@ func (s *Store) NewSetupKey(networkID int64, reusable bool, expiresAt time.Time)
 	return k, nil
 }
 
+const setupKeyCols = `id, network_id, key, reusable, revoked, expires_at, used_count, created_at, owner_user_id`
+
 // SetupKeys lists all setup keys in a network, newest first.
 func (s *Store) SetupKeys(networkID int64) ([]SetupKey, error) {
-	rows, err := s.db.Query(`SELECT id, network_id, key, reusable, revoked, expires_at, used_count, created_at
+	rows, err := s.db.Query(`SELECT `+setupKeyCols+`
 		FROM setup_keys WHERE network_id = ? ORDER BY id DESC`, networkID)
 	if err != nil {
 		return nil, err
@@ -386,7 +425,7 @@ func scanSetupKey(r rowScanner) (SetupKey, error) {
 	var k SetupKey
 	var reusable, revoked int
 	var exp, created int64
-	if err := r.Scan(&k.ID, &k.NetworkID, &k.Key, &reusable, &revoked, &exp, &k.UsedCount, &created); err != nil {
+	if err := r.Scan(&k.ID, &k.NetworkID, &k.Key, &reusable, &revoked, &exp, &k.UsedCount, &created, &k.OwnerUserID); err != nil {
 		return k, err
 	}
 	k.Reusable = reusable != 0
@@ -410,31 +449,42 @@ func (s *Store) RevokeSetupKey(id int64) error {
 	return nil
 }
 
-// UseSetupKey validates key and atomically records the use. It returns the
-// key's network, or an error describing why the key is unusable.
-func (s *Store) UseSetupKey(keyStr string) (Network, error) {
+// UseSetupKey validates key and atomically records the use. It returns
+// the key's network and owning user (0 = legacy/admin), or an error
+// describing why the key is unusable.
+func (s *Store) UseSetupKey(keyStr string) (Network, int64, error) {
 	keyStr = strings.TrimSpace(keyStr)
-	row := s.db.QueryRow(`SELECT id, network_id, key, reusable, revoked, expires_at, used_count, created_at
-		FROM setup_keys WHERE key = ?`, keyStr)
+	row := s.db.QueryRow(`SELECT `+setupKeyCols+` FROM setup_keys WHERE key = ?`, keyStr)
 	k, err := scanSetupKey(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Network{}, errors.New("unknown setup key")
+		return Network{}, 0, errors.New("unknown setup key")
 	}
 	if err != nil {
-		return Network{}, err
+		return Network{}, 0, err
 	}
 	switch {
 	case k.Revoked:
-		return Network{}, errors.New("setup key has been revoked")
+		return Network{}, 0, errors.New("setup key has been revoked")
 	case !k.ExpiresAt.IsZero() && time.Now().After(k.ExpiresAt):
-		return Network{}, errors.New("setup key has expired")
+		return Network{}, 0, errors.New("setup key has expired")
 	case !k.Reusable && k.UsedCount > 0:
-		return Network{}, errors.New("setup key was single-use and is spent")
+		return Network{}, 0, errors.New("setup key was single-use and is spent")
 	}
 	if _, err := s.db.Exec(`UPDATE setup_keys SET used_count = used_count + 1 WHERE id = ?`, k.ID); err != nil {
-		return Network{}, err
+		return Network{}, 0, err
 	}
-	return s.NetworkByID(k.NetworkID)
+	nw, err := s.NetworkByID(k.NetworkID)
+	return nw, k.OwnerUserID, err
+}
+
+// SetupKeyByID returns one setup key.
+func (s *Store) SetupKeyByID(id int64) (SetupKey, error) {
+	row := s.db.QueryRow(`SELECT `+setupKeyCols+` FROM setup_keys WHERE id = ?`, id)
+	k, err := scanSetupKey(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SetupKey{}, ErrNotFound
+	}
+	return k, err
 }
 
 func boolInt(b bool) int {

@@ -36,6 +36,7 @@ Usage:
   overmesh exit-node <peer-hostname|off>          switch exit node on the fly
   overmesh drop <file> <peer-hostname>            send a file (resumable)
   overmesh inbox                                  list received files
+  overmesh rotate-key                             rotate the WireGuard node key
   overmesh version
 
 Routers and exit nodes must be approved in the web UI before they carry
@@ -69,6 +70,8 @@ func main() {
 		err = cmdDrop(args)
 	case "inbox":
 		err = cmdInbox(args)
+	case "rotate-key":
+		err = cmdRotateKey(args)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", cmd, usage)
 		os.Exit(2)
@@ -363,6 +366,17 @@ func cmdInbox(args []string) error {
 		}
 		fmt.Printf("  %-20s %-34s %10s  %s\n", f.From, f.Name, humanBytes(f.Size), state)
 	}
+	return nil
+}
+
+func cmdRotateKey(args []string) error {
+	fs := flag.NewFlagSet("rotate-key", flag.ExitOnError)
+	socket := fs.String("socket", daemon.DefaultSocketPath(), "daemon control socket")
+	_ = fs.Parse(args)
+	if err := call(*socket, "POST", "/rotatekey", struct{}{}, nil); err != nil {
+		return err
+	}
+	fmt.Println("node key rotated — peers pick the new key up within seconds")
 	return nil
 }
 

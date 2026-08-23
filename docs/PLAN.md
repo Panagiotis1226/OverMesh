@@ -121,11 +121,16 @@ Each phase is small, independently testable, and ends with a concrete **exit tes
 - Packaging: Homebrew tap (macOS), deb/rpm + systemd unit (Linux), `overmesh-server` docker image + compose example.
 - **Exit test:** drag a 2 GB file Mac→Linux over a relayed path; interrupt mid-transfer and resume; ACL can block drops between two nodes.
 
-### Phase 7 — OIDC SSO + multi-user/admin polish
+### Phase 7 — user accounts, roles, key rotation, audit log
 
-- OIDC (coreos/go-oidc): any provider (Authentik, Keycloak, Google…); device authorization via browser flow (`overmesh up` prints a login URL); local auth remains the zero-dependency default.
-- Users/roles (admin vs member), node expiry + re-auth, **node key rotation**, audit log; web UI: user management, per-user device views.
-- **Exit test:** fresh install onboards a device via Keycloak-in-docker login; expired node loses access until re-auth; key rotation happens without dropping connections.
+(Rescoped by decision: **no OIDC/SSO for now** — local accounts only;
+SSO may return as a future phase.)
+
+- Local accounts (username + bcrypt password): admins create users in the web UI, plus an optional **open-signup toggle**; legacy single-admin installs migrate to user `admin` automatically.
+- Roles: admin = everything; **member = own devices only** — setup keys carry an owner, devices enroll under the key's owner, and ACLs/route approvals/user management are admin-only (403).
+- **Node key rotation:** `overmesh rotate-key` swaps the WireGuard key live (device first, then re-register; peers re-handshake off the netmap push).
+- Audit log: append-only trail (logins, user/key/device events, ACL + route changes, rotations) with a read-only web UI card.
+- **Exit test:** member sees only their own device and is 403'd elsewhere; signup 404s until toggled on; rotation keeps connectivity (proven by ping recovery); audit contains the expected trail.
 
 ### Phase 8 — Windows client
 

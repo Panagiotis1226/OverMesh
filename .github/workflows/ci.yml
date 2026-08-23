@@ -221,6 +221,19 @@ jobs:
       - name: Transfer, interrupt+resume, ACL block, relay path
         run: sudo env "PATH=$PATH" test/integration/phase6.sh
 
+  accounts:
+    name: Phase 7 accounts, roles, rotation, audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build binaries
+        run: make build
+      - name: RBAC, ownership, signup toggle, key rotation, audit
+        run: sudo env "PATH=$PATH" test/integration/phase7.sh
+
   bench:
     name: Throughput bench (informational)
     runs-on: ubuntu-latest

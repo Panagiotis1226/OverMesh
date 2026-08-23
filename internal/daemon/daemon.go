@@ -15,6 +15,7 @@ import (
 	"log"
 	"net"
 	"net/netip"
+	"net/url"
 	"os"
 	"runtime"
 	"sort"
@@ -29,6 +30,7 @@ import (
 
 	overmeshv1 "github.com/panagiotis1226/overmesh/gen/overmeshv1"
 	"github.com/panagiotis1226/overmesh/internal/magicsock"
+	"github.com/panagiotis1226/overmesh/internal/relay"
 	"github.com/panagiotis1226/overmesh/internal/version"
 	"github.com/panagiotis1226/overmesh/internal/wgengine"
 )
@@ -65,7 +67,8 @@ type Status struct {
 	IPv6     string       `json:"ipv6,omitempty"`
 	Iface    string       `json:"iface,omitempty"`
 	Engine   string       `json:"engine,omitempty"`
-	Conn     string       `json:"conn,omitempty"` // connected | reconnecting
+	Conn     string       `json:"conn,omitempty"`  // connected | reconnecting
+	Relay    string       `json:"relay,omitempty"` // home relay URL when connected
 	Peers    []PeerStatus `json:"peers,omitempty"`
 }
 
@@ -90,13 +93,15 @@ type Daemon struct {
 	opts  Options
 	state *State
 
-	mu      sync.Mutex
-	cancel  context.CancelFunc // stops the session goroutine
-	engine  wgengine.Engine
-	connmgr *magicsock.ConnMgr
-	peers   map[uint64]*peerInfo
-	status  Status
-	stopped chan struct{} // closed when the session goroutine exits
+	mu       sync.Mutex
+	cancel   context.CancelFunc // stops the session goroutine
+	engine   wgengine.Engine
+	connmgr  *magicsock.ConnMgr
+	bind     *magicsock.Bind
+	relayCli *relay.Client
+	peers    map[uint64]*peerInfo
+	status   Status
+	stopped  chan struct{} // closed when the session goroutine exits
 }
 
 // New loads state and returns a Daemon (not yet connected).
@@ -257,9 +262,19 @@ func (d *Daemon) session(ctx context.Context, conn *grpc.ClientConn, client over
 	d.mu.Lock()
 	d.engine = eng
 	d.connmgr = cm
+	d.bind = bind
 	d.status.Iface = eng.IfName()
 	d.status.Engine = eng.Kind()
 	d.mu.Unlock()
+	defer func() {
+		d.mu.Lock()
+		rc := d.relayCli
+		d.relayCli = nil
+		d.mu.Unlock()
+		if rc != nil {
+			rc.Close()
+		}
+	}()
 
 	// Signaling stream (its own reconnect loop) + roaming watcher.
 	if cm != nil {
@@ -321,6 +336,9 @@ func (d *Daemon) runNetMapStream(ctx context.Context, client overmeshv1.Coordina
 // updates magicsock's negotiation set.
 func (d *Daemon) applyNetMap(nm *overmeshv1.NetMap, eng wgengine.Engine, cm *magicsock.ConnMgr) error {
 	stunHosts := d.resolveStunServers(nm.GetStunServers())
+	if cm != nil {
+		d.ensureRelay(d.resolveRelayURLs(nm.GetRelays()))
+	}
 
 	d.mu.Lock()
 	seen := make(map[uint64]bool)
@@ -378,16 +396,22 @@ func (d *Daemon) applyNetMap(nm *overmeshv1.NetMap, eng wgengine.Engine, cm *mag
 	return nil
 }
 
-// buildPeerConfigsLocked renders engine peer configs from current state:
-// magicsock's chosen endpoint wins; otherwise the first static hint.
+// buildPeerConfigsLocked renders engine peer configs from current state,
+// applying the path ladder: ICE direct > relay > static LAN hint.
 // Held: d.mu.
 func (d *Daemon) buildPeerConfigsLocked() []wgengine.PeerConfig {
+	relayUp := d.relayCli != nil && d.relayCli.Connected()
 	var out []wgengine.PeerConfig
 	for _, pi := range d.peers {
 		pc := wgengine.PeerConfig{PublicKey: pi.pubKey, AllowedIPs: append([]netip.Prefix(nil), pi.allowed...)}
-		if pi.path == magicsock.PathDirect && pi.pathEP.IsValid() {
+		switch {
+		case pi.path == magicsock.PathDirect && pi.pathEP.IsValid():
 			pc.Endpoint = pi.pathEP
-		} else {
+		case relayUp && pi.online:
+			// Guaranteed fallback: the relay carries traffic instantly
+			// while (and whenever) no direct path exists.
+			pc.RelayEndpoint = magicsock.RelayEndpointString(pi.pubKey)
+		default:
 			for _, e := range pi.staticEPs {
 				if ap, err := netip.ParseAddrPort(e); err == nil {
 					pc.Endpoint = ap
@@ -397,15 +421,117 @@ func (d *Daemon) buildPeerConfigsLocked() []wgengine.PeerConfig {
 		}
 		// A peer with no endpoint at all is unreachable; programming it
 		// would burn WireGuard's handshake retry timer for nothing.
-		if pc.Endpoint.IsValid() {
+		if pc.Endpoint.IsValid() || pc.RelayEndpoint != "" {
 			out = append(out, pc)
 		}
 	}
 	return out
 }
 
-// onPathUpdate is magicsock's callback: apply the new path to WireGuard
-// and to status. Runs on ConnMgr goroutines.
+// resolveRelayURLs fills empty-host relay URLs with the control plane's
+// host (same convention as STUN entries).
+func (d *Daemon) resolveRelayURLs(relays []string) []string {
+	serverHost, _, err := net.SplitHostPort(d.state.Server)
+	if err != nil {
+		serverHost = d.state.Server
+	}
+	var out []string
+	for _, r := range relays {
+		u, err := url.Parse(r)
+		if err != nil {
+			continue
+		}
+		if u.Hostname() == "" {
+			if p := u.Port(); p != "" {
+				u.Host = net.JoinHostPort(serverHost, p)
+			} else {
+				u.Host = serverHost
+			}
+		}
+		out = append(out, u.String())
+	}
+	return out
+}
+
+// ensureRelay keeps one client connected to the home relay (first URL).
+func (d *Daemon) ensureRelay(urls []string) {
+	d.mu.Lock()
+	cur := d.relayCli
+	bind := d.bind
+	d.mu.Unlock()
+	if bind == nil {
+		return
+	}
+
+	if len(urls) == 0 {
+		if cur != nil {
+			log.Print("daemon: relay removed from netmap, disconnecting")
+			bind.SetRelaySender(nil)
+			cur.Close()
+			d.mu.Lock()
+			d.relayCli = nil
+			d.mu.Unlock()
+			d.syncPeers()
+		}
+		return
+	}
+	home := urls[0]
+	if cur != nil && cur.URL() == home {
+		return
+	}
+	if cur != nil {
+		cur.Close()
+	}
+
+	var pub [32]byte
+	copy(pub[:], d.state.NodeKey().Public().Bytes())
+	cli := relay.NewClient(home, d.state.NodeKey().Raw(), pub,
+		bind.DeliverRelayPacket, log.Printf)
+	bind.SetRelaySender(cli.Send)
+	d.mu.Lock()
+	d.relayCli = cli
+	d.mu.Unlock()
+	log.Printf("daemon: home relay %s", home)
+
+	// Re-sync peers once the relay link comes up so relay endpoints get
+	// programmed promptly (and again if it later reconnects).
+	go func() {
+		for i := 0; i < 100; i++ {
+			d.mu.Lock()
+			stillCurrent := d.relayCli == cli
+			d.mu.Unlock()
+			if !stillCurrent {
+				return
+			}
+			if cli.Connected() {
+				d.syncPeers()
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+	}()
+}
+
+// syncPeers recomputes and applies engine peer configs plus status.
+func (d *Daemon) syncPeers() {
+	d.mu.Lock()
+	eng := d.engine
+	var cfgs []wgengine.PeerConfig
+	if eng != nil {
+		cfgs = d.buildPeerConfigsLocked()
+		d.refreshPeerStatusLocked()
+	}
+	d.mu.Unlock()
+	if eng != nil {
+		if err := eng.SetPeers(cfgs); err != nil {
+			log.Printf("daemon: sync peers: %v", err)
+		}
+	}
+}
+
+// onPathUpdate is magicsock's callback: record the peer's new path and
+// re-apply the full path ladder (direct > relay > static) to WireGuard.
+// Runs on ConnMgr goroutines.
 func (d *Daemon) onPathUpdate(u magicsock.PathUpdate) {
 	d.mu.Lock()
 	pi, ok := d.peers[u.NodeID]
@@ -413,26 +539,33 @@ func (d *Daemon) onPathUpdate(u magicsock.PathUpdate) {
 		d.mu.Unlock()
 		return
 	}
+	changed := pi.path != u.State || pi.pathEP != u.Endpoint
 	pi.path = u.State
 	pi.pathEP = u.Endpoint
 	pi.rtt = u.RTT
-	eng := d.engine
-	pub := pi.pubKey
 	host := pi.hostname
-	d.refreshPeerStatusLocked()
 	d.mu.Unlock()
 
-	if u.State == magicsock.PathDirect && u.Endpoint.IsValid() && eng != nil {
-		if err := eng.SetPeerEndpoint(pub, u.Endpoint); err != nil {
-			log.Printf("daemon: move %s endpoint to %s: %v", host, u.Endpoint, err)
-		} else {
-			log.Printf("daemon: %s now direct via %s (rtt %v)", host, u.Endpoint, u.RTT)
-		}
+	if !changed {
+		return
 	}
+	switch u.State {
+	case magicsock.PathDirect:
+		log.Printf("daemon: %s now direct via %s (rtt %v)", host, u.Endpoint, u.RTT)
+	case magicsock.PathNone:
+		log.Printf("daemon: %s lost its direct path, falling back", host)
+	}
+	d.syncPeers()
 }
 
 // refreshPeerStatusLocked rebuilds the status peer list. Held: d.mu.
 func (d *Daemon) refreshPeerStatusLocked() {
+	relayUp := d.relayCli != nil && d.relayCli.Connected()
+	if relayUp {
+		d.status.Relay = d.relayCli.URL()
+	} else {
+		d.status.Relay = ""
+	}
 	var ps []PeerStatus
 	for _, pi := range d.peers {
 		s := PeerStatus{
@@ -442,17 +575,20 @@ func (d *Daemon) refreshPeerStatusLocked() {
 			Online:    pi.online,
 			Endpoints: pi.staticEPs,
 		}
-		switch pi.path {
-		case magicsock.PathDirect:
+		switch {
+		case pi.path == magicsock.PathDirect:
 			s.Path = "direct"
 			s.Endpoint = pi.pathEP.String()
 			s.RTTms = pi.rtt.Milliseconds()
-		case magicsock.PathConnecting:
+		case relayUp && pi.online:
+			// Connectivity via relay right now; "connecting" only shows
+			// when there is no relay to lean on.
+			s.Path = "relay"
+		case pi.path == magicsock.PathConnecting:
 			s.Path = "connecting"
 		default:
-			// With NAT traversal active, a failed negotiation is "none"
-			// (the relay picks these up in Phase 3). Without it (kernel
-			// engine), a static hint is the Phase-1 LAN path.
+			// Without NAT traversal (kernel engine), a static hint is
+			// the Phase-1 LAN path.
 			if d.connmgr == nil && len(pi.staticEPs) > 0 {
 				s.Path = "lan"
 			} else {

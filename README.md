@@ -2,7 +2,7 @@
 
 A fully self-hostable **WireGuard-based overlay mesh VPN** — control plane included — in the Tailscale / NetBird class.
 
-> Status: **Phase 2 complete** — NAT holepunching works: one shared UDP socket carries WireGuard + STUN/ICE ("magicsock"), the control plane embeds a STUN server and routes ICE signaling, and nodes behind cone NATs connect **directly** with automatic re-punch on network changes (`overmesh status` shows `direct <ip:port>`). Symmetric-NAT pairings settle into a clean `none` state until Phase 3's relay. See [`docs/PLAN.md`](docs/PLAN.md).
+> Status: **Phase 3 complete** — every peer pair is now connectable. The control plane embeds the OMR relay (DERP-style, TCP, `/relay` on the web port; payloads stay WireGuard-encrypted end to end), nodes bootstrap through it instantly while ICE races for a direct path, cone NATs upgrade to `direct`, symmetric NATs stay on `relay` — and if an established direct path dies (UDP blocked, network change), traffic **automatically falls back to the relay's TCP connection**. Standalone `overmesh-relay` deploys extra regions. See [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Quickstart (LAN)
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/panagiotis1226/overmesh/internal/key"
 )
@@ -24,6 +25,9 @@ type State struct {
 	// ExitNode is the hostname of the peer all traffic should egress
 	// through ("" = none).
 	ExitNode string `json:"exit_node,omitempty"`
+	// NodeKeyRotatedAt is when the WireGuard node key last rotated
+	// (unix seconds; 0 = never rotated since enrollment).
+	NodeKeyRotatedAt int64 `json:"node_key_rotated_at,omitempty"`
 
 	machinePriv key.MachinePrivate
 	nodePriv    key.NodePrivate
@@ -88,3 +92,11 @@ func (st *State) MachineKey() key.MachinePrivate { return st.machinePriv }
 
 // NodeKey returns the WireGuard private key.
 func (st *State) NodeKey() key.NodePrivate { return st.nodePriv }
+
+// SetNodeKey swaps in a freshly rotated WireGuard key (persist with
+// Save afterwards).
+func (st *State) SetNodeKey(nk key.NodePrivate) {
+	st.nodePriv = nk
+	st.NodePrivateHex = nk.Hex()
+	st.NodeKeyRotatedAt = time.Now().Unix()
+}

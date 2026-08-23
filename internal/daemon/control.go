@@ -130,6 +130,13 @@ func (d *Daemon) ServeControl(socketPath, groupName string) error {
 		}
 		writeJSON(w, map[string]any{"dir": dir, "files": files})
 	})
+	mux.HandleFunc("POST /rotatekey", func(w http.ResponseWriter, r *http.Request) {
+		if err := d.RotateNodeKey(); err != nil {
+			httpErr(w, http.StatusConflict, err.Error())
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	})
 	mux.HandleFunc("POST /down", func(w http.ResponseWriter, r *http.Request) {
 		if err := d.Down(); err != nil {
 			httpErr(w, http.StatusConflict, err.Error())

@@ -30,6 +30,7 @@ import (
 
 	overmeshv1 "github.com/panagiotis1226/overmesh/gen/overmeshv1"
 	"github.com/panagiotis1226/overmesh/internal/filter"
+	"github.com/panagiotis1226/overmesh/internal/key"
 	"github.com/panagiotis1226/overmesh/internal/magicsock"
 	"github.com/panagiotis1226/overmesh/internal/meshdns"
 	"github.com/panagiotis1226/overmesh/internal/overdrop"
@@ -161,6 +162,11 @@ type Daemon struct {
 
 	// Phase 6: OverDrop receiver.
 	dropSrv *overdrop.Server
+
+	// lastRelays remembers the resolved relay URLs from the latest
+	// netmap, so key rotation can rebuild the relay client (it
+	// authenticates with the node key).
+	lastRelays []string
 }
 
 // New loads state and returns a Daemon (not yet connected).
@@ -690,6 +696,76 @@ func (d *Daemon) applyRoutes(nm *overmeshv1.NetMap, eng wgengine.Engine) {
 	}
 }
 
+// RotateNodeKey swaps the WireGuard node key live: new key on the
+// device first, then re-register so the control plane pushes the new
+// public key to every peer; peers re-handshake within seconds. The
+// machine key (device identity) never changes.
+func (d *Daemon) RotateNodeKey() error {
+	d.mu.Lock()
+	if d.cancel == nil || d.engine == nil {
+		d.mu.Unlock()
+		return fmt.Errorf("not up")
+	}
+	eng := d.engine
+	server := d.state.Server
+	oldKey := d.state.NodeKey()
+	advRoutes := d.state.AdvertiseRoutes
+	d.mu.Unlock()
+
+	newKey, err := key.NewNode()
+	if err != nil {
+		return err
+	}
+	if err := eng.SetPrivateKey(newKey.Raw()); err != nil {
+		return fmt.Errorf("engine key swap: %w", err)
+	}
+
+	// Tell the control plane; peers get the new key on the netmap push.
+	conn, err := d.dial(server)
+	if err == nil {
+		hostname := os.Getenv("OM_HOSTNAME")
+		if hostname == "" {
+			hostname, _ = os.Hostname()
+		}
+		client := overmeshv1.NewCoordinationServiceClient(conn)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		_, err = client.RegisterNode(ctx, &overmeshv1.RegisterNodeRequest{
+			MachineKey:       d.state.MachineKey().Public().Bytes(),
+			NodeKey:          newKey.Public().Bytes(),
+			Hostname:         hostname,
+			Os:               runtime.GOOS,
+			ClientVersion:    version.Long(),
+			AdvertisedRoutes: advRoutes,
+		})
+		cancel()
+		conn.Close()
+	}
+	if err != nil {
+		// Roll the device back so the mesh keeps working on the old key.
+		_ = eng.SetPrivateKey(oldKey.Raw())
+		return fmt.Errorf("control plane rejected the new key (rolled back): %w", err)
+	}
+
+	d.mu.Lock()
+	d.state.SetNodeKey(newKey)
+	saveErr := d.state.Save(d.opts.StateDir)
+	relayCli := d.relayCli
+	relays := append([]string(nil), d.lastRelays...)
+	d.relayCli = nil
+	d.mu.Unlock()
+	if saveErr != nil {
+		return fmt.Errorf("key rotated but state save failed: %w", saveErr)
+	}
+	// The relay authenticates with the node key — reconnect as the new
+	// identity so relayed peers can still reach us.
+	if relayCli != nil {
+		relayCli.Close()
+		d.ensureRelay(relays)
+	}
+	log.Print("daemon: node key rotated")
+	return nil
+}
+
 // SetExitNode switches the exit node at runtime ("" turns it off).
 func (d *Daemon) SetExitNode(name string) error {
 	if name != "" && runtime.GOOS != "linux" {
@@ -859,6 +935,7 @@ func (d *Daemon) ensureRelay(urls []string) {
 	d.mu.Lock()
 	cur := d.relayCli
 	bind := d.bind
+	d.lastRelays = urls
 	d.mu.Unlock()
 	if bind == nil {
 		return

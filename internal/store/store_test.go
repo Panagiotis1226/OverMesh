@@ -109,7 +109,7 @@ func TestSetupKeyFlow(t *testing.T) {
 	s := open(t)
 	nw := testNetwork(t, s)
 
-	reusable, err := s.NewSetupKey(nw.ID, true, time.Time{})
+	reusable, err := s.NewSetupKey(nw.ID, true, time.Time{}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,39 +118,39 @@ func TestSetupKeyFlow(t *testing.T) {
 	}
 
 	// Reusable key works twice.
-	if _, err := s.UseSetupKey(reusable.Key); err != nil {
+	if _, _, err := s.UseSetupKey(reusable.Key); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UseSetupKey(reusable.Key); err != nil {
+	if _, _, err := s.UseSetupKey(reusable.Key); err != nil {
 		t.Fatal(err)
 	}
 
 	// Single-use key works once.
-	oneshot, _ := s.NewSetupKey(nw.ID, false, time.Time{})
-	if _, err := s.UseSetupKey(oneshot.Key); err != nil {
+	oneshot, _ := s.NewSetupKey(nw.ID, false, time.Time{}, 0)
+	if _, _, err := s.UseSetupKey(oneshot.Key); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UseSetupKey(oneshot.Key); err == nil {
+	if _, _, err := s.UseSetupKey(oneshot.Key); err == nil {
 		t.Fatal("single-use key accepted twice")
 	}
 
 	// Expired key rejected.
-	expired, _ := s.NewSetupKey(nw.ID, true, time.Now().Add(-time.Hour))
-	if _, err := s.UseSetupKey(expired.Key); err == nil {
+	expired, _ := s.NewSetupKey(nw.ID, true, time.Now().Add(-time.Hour), 0)
+	if _, _, err := s.UseSetupKey(expired.Key); err == nil {
 		t.Fatal("expired key accepted")
 	}
 
 	// Revoked key rejected.
-	revoked, _ := s.NewSetupKey(nw.ID, true, time.Time{})
+	revoked, _ := s.NewSetupKey(nw.ID, true, time.Time{}, 0)
 	if err := s.RevokeSetupKey(revoked.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UseSetupKey(revoked.Key); err == nil {
+	if _, _, err := s.UseSetupKey(revoked.Key); err == nil {
 		t.Fatal("revoked key accepted")
 	}
 
 	// Unknown key rejected.
-	if _, err := s.UseSetupKey("sk-doesnotexist"); err == nil {
+	if _, _, err := s.UseSetupKey("sk-doesnotexist"); err == nil {
 		t.Fatal("unknown key accepted")
 	}
 

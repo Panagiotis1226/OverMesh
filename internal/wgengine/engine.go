@@ -70,6 +70,9 @@ type Engine interface {
 	// SetPeerEndpoint moves one peer's endpoint without touching the
 	// rest of its config (magicsock path changes).
 	SetPeerEndpoint(publicKey [32]byte, endpoint netip.AddrPort) error
+	// SetPrivateKey swaps the device's WireGuard private key (node key
+	// rotation). Existing peers re-handshake with the new key.
+	SetPrivateKey(privateKey [32]byte) error
 	// SetFilter installs the inbound packet filter (nil allows all).
 	// Only the userspace engine enforces it; the kernel engine logs a
 	// warning and ignores it.

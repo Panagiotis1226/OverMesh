@@ -70,6 +70,10 @@ func (e *userspaceEngine) SetPeerEndpoint(publicKey [32]byte, endpoint netip.Add
 	return e.dev.IpcSet(uapiPeerEndpoint(publicKey, endpoint))
 }
 
+func (e *userspaceEngine) SetPrivateKey(privateKey [32]byte) error {
+	return e.dev.IpcSet(uapiPrivateKey(privateKey))
+}
+
 func (e *userspaceEngine) IfName() string { return e.name }
 func (e *userspaceEngine) Kind() string   { return "userspace" }
 

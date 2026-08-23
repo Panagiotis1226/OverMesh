@@ -27,8 +27,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	CoordinationService_RegisterNode_FullMethodName = "/overmesh.v1.CoordinationService/RegisterNode"
-	CoordinationService_StreamNetMap_FullMethodName = "/overmesh.v1.CoordinationService/StreamNetMap"
+	CoordinationService_RegisterNode_FullMethodName    = "/overmesh.v1.CoordinationService/RegisterNode"
+	CoordinationService_StreamNetMap_FullMethodName    = "/overmesh.v1.CoordinationService/StreamNetMap"
+	CoordinationService_UpdateEndpoints_FullMethodName = "/overmesh.v1.CoordinationService/UpdateEndpoints"
+	CoordinationService_SignalStream_FullMethodName    = "/overmesh.v1.CoordinationService/SignalStream"
 )
 
 // CoordinationServiceClient is the client API for CoordinationService service.
@@ -44,7 +46,17 @@ type CoordinationServiceClient interface {
 	// StreamNetMap delivers the initial network map and then pushes a new
 	// NetMap whenever anything the node cares about changes. The stream is
 	// long-lived; reconnecting with the same node identity resumes it.
+	// While the stream is open the node is considered online.
 	StreamNetMap(ctx context.Context, in *StreamNetMapRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[NetMap], error)
+	// UpdateEndpoints reports the node's currently reachable UDP endpoints
+	// ("ip:port"). Phase 1 sends locally-discovered addresses; Phase 2 adds
+	// STUN-discovered ones.
+	UpdateEndpoints(ctx context.Context, in *UpdateEndpointsRequest, opts ...grpc.CallOption) (*UpdateEndpointsResponse, error)
+	// SignalStream is the rendezvous channel for NAT traversal: nodes hold
+	// it open and the server routes envelopes (ICE offers/answers and
+	// trickled candidates) between them. The first envelope a client sends
+	// authenticates the stream via machine_key and needs no destination.
+	SignalStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[SignalEnvelope, SignalEnvelope], error)
 }
 
 type coordinationServiceClient struct {
@@ -84,6 +96,29 @@ func (c *coordinationServiceClient) StreamNetMap(ctx context.Context, in *Stream
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type CoordinationService_StreamNetMapClient = grpc.ServerStreamingClient[NetMap]
 
+func (c *coordinationServiceClient) UpdateEndpoints(ctx context.Context, in *UpdateEndpointsRequest, opts ...grpc.CallOption) (*UpdateEndpointsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateEndpointsResponse)
+	err := c.cc.Invoke(ctx, CoordinationService_UpdateEndpoints_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *coordinationServiceClient) SignalStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[SignalEnvelope, SignalEnvelope], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &CoordinationService_ServiceDesc.Streams[1], CoordinationService_SignalStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[SignalEnvelope, SignalEnvelope]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type CoordinationService_SignalStreamClient = grpc.BidiStreamingClient[SignalEnvelope, SignalEnvelope]
+
 // CoordinationServiceServer is the server API for CoordinationService service.
 // All implementations must embed UnimplementedCoordinationServiceServer
 // for forward compatibility.
@@ -97,7 +132,17 @@ type CoordinationServiceServer interface {
 	// StreamNetMap delivers the initial network map and then pushes a new
 	// NetMap whenever anything the node cares about changes. The stream is
 	// long-lived; reconnecting with the same node identity resumes it.
+	// While the stream is open the node is considered online.
 	StreamNetMap(*StreamNetMapRequest, grpc.ServerStreamingServer[NetMap]) error
+	// UpdateEndpoints reports the node's currently reachable UDP endpoints
+	// ("ip:port"). Phase 1 sends locally-discovered addresses; Phase 2 adds
+	// STUN-discovered ones.
+	UpdateEndpoints(context.Context, *UpdateEndpointsRequest) (*UpdateEndpointsResponse, error)
+	// SignalStream is the rendezvous channel for NAT traversal: nodes hold
+	// it open and the server routes envelopes (ICE offers/answers and
+	// trickled candidates) between them. The first envelope a client sends
+	// authenticates the stream via machine_key and needs no destination.
+	SignalStream(grpc.BidiStreamingServer[SignalEnvelope, SignalEnvelope]) error
 	mustEmbedUnimplementedCoordinationServiceServer()
 }
 
@@ -113,6 +158,12 @@ func (UnimplementedCoordinationServiceServer) RegisterNode(context.Context, *Reg
 }
 func (UnimplementedCoordinationServiceServer) StreamNetMap(*StreamNetMapRequest, grpc.ServerStreamingServer[NetMap]) error {
 	return status.Errorf(codes.Unimplemented, "method StreamNetMap not implemented")
+}
+func (UnimplementedCoordinationServiceServer) UpdateEndpoints(context.Context, *UpdateEndpointsRequest) (*UpdateEndpointsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateEndpoints not implemented")
+}
+func (UnimplementedCoordinationServiceServer) SignalStream(grpc.BidiStreamingServer[SignalEnvelope, SignalEnvelope]) error {
+	return status.Errorf(codes.Unimplemented, "method SignalStream not implemented")
 }
 func (UnimplementedCoordinationServiceServer) mustEmbedUnimplementedCoordinationServiceServer() {}
 func (UnimplementedCoordinationServiceServer) testEmbeddedByValue()                             {}
@@ -164,6 +215,31 @@ func _CoordinationService_StreamNetMap_Handler(srv interface{}, stream grpc.Serv
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type CoordinationService_StreamNetMapServer = grpc.ServerStreamingServer[NetMap]
 
+func _CoordinationService_UpdateEndpoints_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateEndpointsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoordinationServiceServer).UpdateEndpoints(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoordinationService_UpdateEndpoints_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoordinationServiceServer).UpdateEndpoints(ctx, req.(*UpdateEndpointsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CoordinationService_SignalStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(CoordinationServiceServer).SignalStream(&grpc.GenericServerStream[SignalEnvelope, SignalEnvelope]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type CoordinationService_SignalStreamServer = grpc.BidiStreamingServer[SignalEnvelope, SignalEnvelope]
+
 // CoordinationService_ServiceDesc is the grpc.ServiceDesc for CoordinationService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -175,12 +251,22 @@ var CoordinationService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "RegisterNode",
 			Handler:    _CoordinationService_RegisterNode_Handler,
 		},
+		{
+			MethodName: "UpdateEndpoints",
+			Handler:    _CoordinationService_UpdateEndpoints_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "StreamNetMap",
 			Handler:       _CoordinationService_StreamNetMap_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "SignalStream",
+			Handler:       _CoordinationService_SignalStream_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "overmesh/v1/coordination.proto",

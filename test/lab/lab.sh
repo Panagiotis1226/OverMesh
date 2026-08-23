@@ -152,6 +152,18 @@ nat_rules() {
   ns "$natns" iptables -A FORWARD -s "$lan" -j ACCEPT
   ns "$natns" iptables -A FORWARD -d "$lan" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
   ns "$natns" iptables -A FORWARD -d "$lan" -j DROP
+
+  # Drop unsolicited traffic addressed to the router's WAN side, like any
+  # real CPE. Critically, an ACCEPT-all INPUT would CONFIRM conntrack
+  # entries for stray inbound UDP (e.g. a peer's holepunch checks arriving
+  # a moment early), which then collides with the LAN host's own outbound
+  # mapping and forces MASQUERADE onto a different port — breaking the
+  # port-preserving simultaneous open that real-world holepunching
+  # depends on.
+  ns "$natns" iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+  ns "$natns" iptables -A INPUT -i "l${natns: -1}1" -j ACCEPT # LAN side stays open
+  ns "$natns" iptables -A INPUT -i lo -j ACCEPT
+  ns "$natns" iptables -A INPUT -j DROP
 }
 
 build_udpecho() {

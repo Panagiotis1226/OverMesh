@@ -2,7 +2,24 @@
 
 A fully self-hostable **WireGuard-based overlay mesh VPN** — control plane included — in the Tailscale / NetBird class.
 
-> Status: **Phase 0 complete** — monorepo, coordination protocol v1 (protobuf/gRPC), walking-skeleton binaries, NAT-simulation lab, CI with cross-compiled artifacts. See [`docs/PLAN.md`](docs/PLAN.md) for the full phased build plan.
+> Status: **Phase 2 complete** — NAT holepunching works: one shared UDP socket carries WireGuard + STUN/ICE ("magicsock"), the control plane embeds a STUN server and routes ICE signaling, and nodes behind cone NATs connect **directly** with automatic re-punch on network changes (`overmesh status` shows `direct <ip:port>`). Symmetric-NAT pairings settle into a clean `none` state until Phase 3's relay. See [`docs/PLAN.md`](docs/PLAN.md).
+
+## Quickstart (LAN)
+
+```sh
+# On the server machine:
+./overmesh-server -admin-password 'choose-one'
+# open http://<server>:8080, sign in, create a setup key
+
+# On each device (Linux or macOS, as root):
+sudo ./overmeshd &
+sudo ./overmesh up -server <server>:41641 -key sk-...
+sudo ./overmesh status
+sudo ./overmesh ping <other-device>
+```
+
+Phase 1 speaks to the control plane in the clear — use it on trusted
+networks; TLS + internet exposure arrive with Phase 2.
 
 ## What it will do
 

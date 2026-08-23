@@ -160,6 +160,42 @@ func unmarshalPrefixed(prefix string, b []byte, out *[32]byte) error {
 	return nil
 }
 
-// MarshalText for private keys is deliberately not implemented: private
-// keys must never end up in logs or JSON. On-disk persistence gets its own
-// explicit format in Phase 1.
+// Private keys never implement MarshalText/String: they must not end up
+// in logs or JSON by accident. Persistence goes through the explicit
+// Hex()/FromHex functions below, used only by the daemon's 0600 state file.
+
+// Hex returns the private key as bare hex for state-file persistence.
+func (p MachinePrivate) Hex() string { return hex.EncodeToString(p.k[:]) }
+
+// Hex returns the private key as bare hex for state-file persistence.
+func (p NodePrivate) Hex() string { return hex.EncodeToString(p.k[:]) }
+
+// MachinePrivateFromHex parses a persisted private key.
+func MachinePrivateFromHex(s string) (MachinePrivate, error) {
+	var p MachinePrivate
+	if err := privFromHex(s, &p.k); err != nil {
+		return p, fmt.Errorf("machine private key: %w", err)
+	}
+	return p, nil
+}
+
+// NodePrivateFromHex parses a persisted private key.
+func NodePrivateFromHex(s string) (NodePrivate, error) {
+	var p NodePrivate
+	if err := privFromHex(s, &p.k); err != nil {
+		return p, fmt.Errorf("node private key: %w", err)
+	}
+	return p, nil
+}
+
+func privFromHex(s string, out *[32]byte) error {
+	raw, err := hex.DecodeString(s)
+	if err != nil {
+		return err
+	}
+	if len(raw) != 32 {
+		return fmt.Errorf("want 32 bytes, got %d", len(raw))
+	}
+	copy(out[:], raw)
+	return nil
+}

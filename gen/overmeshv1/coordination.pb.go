@@ -29,6 +29,156 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// SignalKind labels what a SignalEnvelope carries.
+type SignalKind int32
+
+const (
+	SignalKind_SIGNAL_KIND_UNSPECIFIED SignalKind = 0
+	// Stream hello: authenticates the client; payload empty.
+	SignalKind_SIGNAL_KIND_HELLO SignalKind = 1
+	// ICE offer from the initiating side; payload = "ufrag\npwd".
+	SignalKind_SIGNAL_KIND_OFFER SignalKind = 2
+	// ICE answer from the accepting side; payload = "ufrag\npwd".
+	SignalKind_SIGNAL_KIND_ANSWER SignalKind = 3
+	// One trickled ICE candidate; payload = candidate string.
+	SignalKind_SIGNAL_KIND_CANDIDATE SignalKind = 4
+)
+
+// Enum value maps for SignalKind.
+var (
+	SignalKind_name = map[int32]string{
+		0: "SIGNAL_KIND_UNSPECIFIED",
+		1: "SIGNAL_KIND_HELLO",
+		2: "SIGNAL_KIND_OFFER",
+		3: "SIGNAL_KIND_ANSWER",
+		4: "SIGNAL_KIND_CANDIDATE",
+	}
+	SignalKind_value = map[string]int32{
+		"SIGNAL_KIND_UNSPECIFIED": 0,
+		"SIGNAL_KIND_HELLO":       1,
+		"SIGNAL_KIND_OFFER":       2,
+		"SIGNAL_KIND_ANSWER":      3,
+		"SIGNAL_KIND_CANDIDATE":   4,
+	}
+)
+
+func (x SignalKind) Enum() *SignalKind {
+	p := new(SignalKind)
+	*p = x
+	return p
+}
+
+func (x SignalKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SignalKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_overmesh_v1_coordination_proto_enumTypes[0].Descriptor()
+}
+
+func (SignalKind) Type() protoreflect.EnumType {
+	return &file_overmesh_v1_coordination_proto_enumTypes[0]
+}
+
+func (x SignalKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SignalKind.Descriptor instead.
+func (SignalKind) EnumDescriptor() ([]byte, []int) {
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{0}
+}
+
+type SignalEnvelope struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Client -> server only, on the first envelope (HELLO): who is talking.
+	MachineKey []byte `protobuf:"bytes,1,opt,name=machine_key,json=machineKey,proto3" json:"machine_key,omitempty"`
+	// Destination node (client -> server).
+	ToNodeId uint64 `protobuf:"varint,2,opt,name=to_node_id,json=toNodeId,proto3" json:"to_node_id,omitempty"`
+	// Origin node; stamped by the server (server -> client), ignored from
+	// clients.
+	FromNodeId uint64     `protobuf:"varint,3,opt,name=from_node_id,json=fromNodeId,proto3" json:"from_node_id,omitempty"`
+	Kind       SignalKind `protobuf:"varint,4,opt,name=kind,proto3,enum=overmesh.v1.SignalKind" json:"kind,omitempty"`
+	Payload    string     `protobuf:"bytes,5,opt,name=payload,proto3" json:"payload,omitempty"`
+	// Sender's ICE session epoch: lets receivers drop stale envelopes from
+	// a restarted negotiation.
+	Session       uint64 `protobuf:"varint,6,opt,name=session,proto3" json:"session,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignalEnvelope) Reset() {
+	*x = SignalEnvelope{}
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignalEnvelope) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignalEnvelope) ProtoMessage() {}
+
+func (x *SignalEnvelope) ProtoReflect() protoreflect.Message {
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignalEnvelope.ProtoReflect.Descriptor instead.
+func (*SignalEnvelope) Descriptor() ([]byte, []int) {
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *SignalEnvelope) GetMachineKey() []byte {
+	if x != nil {
+		return x.MachineKey
+	}
+	return nil
+}
+
+func (x *SignalEnvelope) GetToNodeId() uint64 {
+	if x != nil {
+		return x.ToNodeId
+	}
+	return 0
+}
+
+func (x *SignalEnvelope) GetFromNodeId() uint64 {
+	if x != nil {
+		return x.FromNodeId
+	}
+	return 0
+}
+
+func (x *SignalEnvelope) GetKind() SignalKind {
+	if x != nil {
+		return x.Kind
+	}
+	return SignalKind_SIGNAL_KIND_UNSPECIFIED
+}
+
+func (x *SignalEnvelope) GetPayload() string {
+	if x != nil {
+		return x.Payload
+	}
+	return ""
+}
+
+func (x *SignalEnvelope) GetSession() uint64 {
+	if x != nil {
+		return x.Session
+	}
+	return 0
+}
+
 // RegisterNodeRequest identifies a device to the control plane.
 //
 // Key model (two keys per node, like Tailscale):
@@ -55,7 +205,7 @@ type RegisterNodeRequest struct {
 
 func (x *RegisterNodeRequest) Reset() {
 	*x = RegisterNodeRequest{}
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[0]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -67,7 +217,7 @@ func (x *RegisterNodeRequest) String() string {
 func (*RegisterNodeRequest) ProtoMessage() {}
 
 func (x *RegisterNodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[0]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -80,7 +230,7 @@ func (x *RegisterNodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterNodeRequest.ProtoReflect.Descriptor instead.
 func (*RegisterNodeRequest) Descriptor() ([]byte, []int) {
-	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{0}
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *RegisterNodeRequest) GetMachineKey() []byte {
@@ -134,14 +284,16 @@ type RegisterNodeResponse struct {
 	// Overlay addresses in CIDR notation, e.g. "100.96.0.7/32".
 	OverlayIpv4 string `protobuf:"bytes,3,opt,name=overlay_ipv4,json=overlayIpv4,proto3" json:"overlay_ipv4,omitempty"`
 	// e.g. "fdab:3f19:0:0::7/128".
-	OverlayIpv6   string `protobuf:"bytes,4,opt,name=overlay_ipv6,json=overlayIpv6,proto3" json:"overlay_ipv6,omitempty"`
+	OverlayIpv6 string `protobuf:"bytes,4,opt,name=overlay_ipv6,json=overlayIpv6,proto3" json:"overlay_ipv6,omitempty"`
+	// The (possibly deduplicated/sanitized) name the control plane assigned.
+	Hostname      string `protobuf:"bytes,5,opt,name=hostname,proto3" json:"hostname,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RegisterNodeResponse) Reset() {
 	*x = RegisterNodeResponse{}
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[1]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -153,7 +305,7 @@ func (x *RegisterNodeResponse) String() string {
 func (*RegisterNodeResponse) ProtoMessage() {}
 
 func (x *RegisterNodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[1]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -166,7 +318,7 @@ func (x *RegisterNodeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterNodeResponse.ProtoReflect.Descriptor instead.
 func (*RegisterNodeResponse) Descriptor() ([]byte, []int) {
-	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{1}
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *RegisterNodeResponse) GetNodeId() uint64 {
@@ -197,6 +349,102 @@ func (x *RegisterNodeResponse) GetOverlayIpv6() string {
 	return ""
 }
 
+func (x *RegisterNodeResponse) GetHostname() string {
+	if x != nil {
+		return x.Hostname
+	}
+	return ""
+}
+
+type UpdateEndpointsRequest struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	MachineKey []byte                 `protobuf:"bytes,1,opt,name=machine_key,json=machineKey,proto3" json:"machine_key,omitempty"`
+	// Reachable UDP endpoints as "ip:port", most-preferred first.
+	Endpoints     []string `protobuf:"bytes,2,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateEndpointsRequest) Reset() {
+	*x = UpdateEndpointsRequest{}
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateEndpointsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateEndpointsRequest) ProtoMessage() {}
+
+func (x *UpdateEndpointsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateEndpointsRequest.ProtoReflect.Descriptor instead.
+func (*UpdateEndpointsRequest) Descriptor() ([]byte, []int) {
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *UpdateEndpointsRequest) GetMachineKey() []byte {
+	if x != nil {
+		return x.MachineKey
+	}
+	return nil
+}
+
+func (x *UpdateEndpointsRequest) GetEndpoints() []string {
+	if x != nil {
+		return x.Endpoints
+	}
+	return nil
+}
+
+type UpdateEndpointsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateEndpointsResponse) Reset() {
+	*x = UpdateEndpointsResponse{}
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateEndpointsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateEndpointsResponse) ProtoMessage() {}
+
+func (x *UpdateEndpointsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateEndpointsResponse.ProtoReflect.Descriptor instead.
+func (*UpdateEndpointsResponse) Descriptor() ([]byte, []int) {
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{4}
+}
+
 type StreamNetMapRequest struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	MachineKey []byte                 `protobuf:"bytes,1,opt,name=machine_key,json=machineKey,proto3" json:"machine_key,omitempty"`
@@ -209,7 +457,7 @@ type StreamNetMapRequest struct {
 
 func (x *StreamNetMapRequest) Reset() {
 	*x = StreamNetMapRequest{}
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[2]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -221,7 +469,7 @@ func (x *StreamNetMapRequest) String() string {
 func (*StreamNetMapRequest) ProtoMessage() {}
 
 func (x *StreamNetMapRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[2]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -234,7 +482,7 @@ func (x *StreamNetMapRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamNetMapRequest.ProtoReflect.Descriptor instead.
 func (*StreamNetMapRequest) Descriptor() ([]byte, []int) {
-	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{2}
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *StreamNetMapRequest) GetMachineKey() []byte {
@@ -256,16 +504,19 @@ func (x *StreamNetMapRequest) GetHaveSeq() uint64 {
 type NetMap struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Monotonically increasing per-node sequence number.
-	Seq           uint64  `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
-	Self          *Node   `protobuf:"bytes,2,opt,name=self,proto3" json:"self,omitempty"`
-	Peers         []*Peer `protobuf:"bytes,3,rep,name=peers,proto3" json:"peers,omitempty"`
+	Seq   uint64  `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
+	Self  *Node   `protobuf:"bytes,2,opt,name=self,proto3" json:"self,omitempty"`
+	Peers []*Peer `protobuf:"bytes,3,rep,name=peers,proto3" json:"peers,omitempty"`
+	// STUN servers ("host:port") for endpoint discovery, the control
+	// plane's own embedded one first.
+	StunServers   []string `protobuf:"bytes,4,rep,name=stun_servers,json=stunServers,proto3" json:"stun_servers,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *NetMap) Reset() {
 	*x = NetMap{}
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[3]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -277,7 +528,7 @@ func (x *NetMap) String() string {
 func (*NetMap) ProtoMessage() {}
 
 func (x *NetMap) ProtoReflect() protoreflect.Message {
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[3]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -290,7 +541,7 @@ func (x *NetMap) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetMap.ProtoReflect.Descriptor instead.
 func (*NetMap) Descriptor() ([]byte, []int) {
-	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{3}
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *NetMap) GetSeq() uint64 {
@@ -314,6 +565,13 @@ func (x *NetMap) GetPeers() []*Peer {
 	return nil
 }
 
+func (x *NetMap) GetStunServers() []string {
+	if x != nil {
+		return x.StunServers
+	}
+	return nil
+}
+
 // Node is the receiving node's own record.
 type Node struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -327,7 +585,7 @@ type Node struct {
 
 func (x *Node) Reset() {
 	*x = Node{}
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[4]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -339,7 +597,7 @@ func (x *Node) String() string {
 func (*Node) ProtoMessage() {}
 
 func (x *Node) ProtoReflect() protoreflect.Message {
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[4]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -352,7 +610,7 @@ func (x *Node) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Node.ProtoReflect.Descriptor instead.
 func (*Node) Descriptor() ([]byte, []int) {
-	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{4}
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Node) GetNodeId() uint64 {
@@ -401,7 +659,7 @@ type Peer struct {
 
 func (x *Peer) Reset() {
 	*x = Peer{}
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[5]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -413,7 +671,7 @@ func (x *Peer) String() string {
 func (*Peer) ProtoMessage() {}
 
 func (x *Peer) ProtoReflect() protoreflect.Message {
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[5]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -426,7 +684,7 @@ func (x *Peer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Peer.ProtoReflect.Descriptor instead.
 func (*Peer) Descriptor() ([]byte, []int) {
-	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{5}
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Peer) GetNodeId() uint64 {
@@ -475,7 +733,17 @@ var File_overmesh_v1_coordination_proto protoreflect.FileDescriptor
 
 const file_overmesh_v1_coordination_proto_rawDesc = "" +
 	"\n" +
-	"\x1eovermesh/v1/coordination.proto\x12\vovermesh.v1\"\xc1\x01\n" +
+	"\x1eovermesh/v1/coordination.proto\x12\vovermesh.v1\"\xd2\x01\n" +
+	"\x0eSignalEnvelope\x12\x1f\n" +
+	"\vmachine_key\x18\x01 \x01(\fR\n" +
+	"machineKey\x12\x1c\n" +
+	"\n" +
+	"to_node_id\x18\x02 \x01(\x04R\btoNodeId\x12 \n" +
+	"\ffrom_node_id\x18\x03 \x01(\x04R\n" +
+	"fromNodeId\x12+\n" +
+	"\x04kind\x18\x04 \x01(\x0e2\x17.overmesh.v1.SignalKindR\x04kind\x12\x18\n" +
+	"\apayload\x18\x05 \x01(\tR\apayload\x12\x18\n" +
+	"\asession\x18\x06 \x01(\x04R\asession\"\xc1\x01\n" +
 	"\x13RegisterNodeRequest\x12\x1f\n" +
 	"\vmachine_key\x18\x01 \x01(\fR\n" +
 	"machineKey\x12\x19\n" +
@@ -483,21 +751,28 @@ const file_overmesh_v1_coordination_proto_rawDesc = "" +
 	"\tsetup_key\x18\x03 \x01(\tR\bsetupKey\x12\x1a\n" +
 	"\bhostname\x18\x04 \x01(\tR\bhostname\x12\x0e\n" +
 	"\x02os\x18\x05 \x01(\tR\x02os\x12%\n" +
-	"\x0eclient_version\x18\x06 \x01(\tR\rclientVersion\"\x94\x01\n" +
+	"\x0eclient_version\x18\x06 \x01(\tR\rclientVersion\"\xb0\x01\n" +
 	"\x14RegisterNodeResponse\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\x12\x1d\n" +
 	"\n" +
 	"network_id\x18\x02 \x01(\tR\tnetworkId\x12!\n" +
 	"\foverlay_ipv4\x18\x03 \x01(\tR\voverlayIpv4\x12!\n" +
-	"\foverlay_ipv6\x18\x04 \x01(\tR\voverlayIpv6\"Q\n" +
+	"\foverlay_ipv6\x18\x04 \x01(\tR\voverlayIpv6\x12\x1a\n" +
+	"\bhostname\x18\x05 \x01(\tR\bhostname\"W\n" +
+	"\x16UpdateEndpointsRequest\x12\x1f\n" +
+	"\vmachine_key\x18\x01 \x01(\fR\n" +
+	"machineKey\x12\x1c\n" +
+	"\tendpoints\x18\x02 \x03(\tR\tendpoints\"\x19\n" +
+	"\x17UpdateEndpointsResponse\"Q\n" +
 	"\x13StreamNetMapRequest\x12\x1f\n" +
 	"\vmachine_key\x18\x01 \x01(\fR\n" +
 	"machineKey\x12\x19\n" +
-	"\bhave_seq\x18\x02 \x01(\x04R\ahaveSeq\"j\n" +
+	"\bhave_seq\x18\x02 \x01(\x04R\ahaveSeq\"\x8d\x01\n" +
 	"\x06NetMap\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12%\n" +
 	"\x04self\x18\x02 \x01(\v2\x11.overmesh.v1.NodeR\x04self\x12'\n" +
-	"\x05peers\x18\x03 \x03(\v2\x11.overmesh.v1.PeerR\x05peers\"{\n" +
+	"\x05peers\x18\x03 \x03(\v2\x11.overmesh.v1.PeerR\x05peers\x12!\n" +
+	"\fstun_servers\x18\x04 \x03(\tR\vstunServers\"{\n" +
 	"\x04Node\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x1d\n" +
@@ -512,10 +787,19 @@ const file_overmesh_v1_coordination_proto_rawDesc = "" +
 	"\voverlay_ips\x18\x04 \x03(\tR\n" +
 	"overlayIps\x12\x1c\n" +
 	"\tendpoints\x18\x05 \x03(\tR\tendpoints\x12\x16\n" +
-	"\x06online\x18\x06 \x01(\bR\x06online2\xb3\x01\n" +
+	"\x06online\x18\x06 \x01(\bR\x06online*\x8a\x01\n" +
+	"\n" +
+	"SignalKind\x12\x1b\n" +
+	"\x17SIGNAL_KIND_UNSPECIFIED\x10\x00\x12\x15\n" +
+	"\x11SIGNAL_KIND_HELLO\x10\x01\x12\x15\n" +
+	"\x11SIGNAL_KIND_OFFER\x10\x02\x12\x16\n" +
+	"\x12SIGNAL_KIND_ANSWER\x10\x03\x12\x19\n" +
+	"\x15SIGNAL_KIND_CANDIDATE\x10\x042\xdf\x02\n" +
 	"\x13CoordinationService\x12S\n" +
 	"\fRegisterNode\x12 .overmesh.v1.RegisterNodeRequest\x1a!.overmesh.v1.RegisterNodeResponse\x12G\n" +
-	"\fStreamNetMap\x12 .overmesh.v1.StreamNetMapRequest\x1a\x13.overmesh.v1.NetMap0\x01B3Z1github.com/panagiotis1226/overmesh/gen/overmeshv1b\x06proto3"
+	"\fStreamNetMap\x12 .overmesh.v1.StreamNetMapRequest\x1a\x13.overmesh.v1.NetMap0\x01\x12\\\n" +
+	"\x0fUpdateEndpoints\x12#.overmesh.v1.UpdateEndpointsRequest\x1a$.overmesh.v1.UpdateEndpointsResponse\x12L\n" +
+	"\fSignalStream\x12\x1b.overmesh.v1.SignalEnvelope\x1a\x1b.overmesh.v1.SignalEnvelope(\x010\x01B3Z1github.com/panagiotis1226/overmesh/gen/overmeshv1b\x06proto3"
 
 var (
 	file_overmesh_v1_coordination_proto_rawDescOnce sync.Once
@@ -529,27 +813,37 @@ func file_overmesh_v1_coordination_proto_rawDescGZIP() []byte {
 	return file_overmesh_v1_coordination_proto_rawDescData
 }
 
-var file_overmesh_v1_coordination_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_overmesh_v1_coordination_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_overmesh_v1_coordination_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_overmesh_v1_coordination_proto_goTypes = []any{
-	(*RegisterNodeRequest)(nil),  // 0: overmesh.v1.RegisterNodeRequest
-	(*RegisterNodeResponse)(nil), // 1: overmesh.v1.RegisterNodeResponse
-	(*StreamNetMapRequest)(nil),  // 2: overmesh.v1.StreamNetMapRequest
-	(*NetMap)(nil),               // 3: overmesh.v1.NetMap
-	(*Node)(nil),                 // 4: overmesh.v1.Node
-	(*Peer)(nil),                 // 5: overmesh.v1.Peer
+	(SignalKind)(0),                 // 0: overmesh.v1.SignalKind
+	(*SignalEnvelope)(nil),          // 1: overmesh.v1.SignalEnvelope
+	(*RegisterNodeRequest)(nil),     // 2: overmesh.v1.RegisterNodeRequest
+	(*RegisterNodeResponse)(nil),    // 3: overmesh.v1.RegisterNodeResponse
+	(*UpdateEndpointsRequest)(nil),  // 4: overmesh.v1.UpdateEndpointsRequest
+	(*UpdateEndpointsResponse)(nil), // 5: overmesh.v1.UpdateEndpointsResponse
+	(*StreamNetMapRequest)(nil),     // 6: overmesh.v1.StreamNetMapRequest
+	(*NetMap)(nil),                  // 7: overmesh.v1.NetMap
+	(*Node)(nil),                    // 8: overmesh.v1.Node
+	(*Peer)(nil),                    // 9: overmesh.v1.Peer
 }
 var file_overmesh_v1_coordination_proto_depIdxs = []int32{
-	4, // 0: overmesh.v1.NetMap.self:type_name -> overmesh.v1.Node
-	5, // 1: overmesh.v1.NetMap.peers:type_name -> overmesh.v1.Peer
-	0, // 2: overmesh.v1.CoordinationService.RegisterNode:input_type -> overmesh.v1.RegisterNodeRequest
-	2, // 3: overmesh.v1.CoordinationService.StreamNetMap:input_type -> overmesh.v1.StreamNetMapRequest
-	1, // 4: overmesh.v1.CoordinationService.RegisterNode:output_type -> overmesh.v1.RegisterNodeResponse
-	3, // 5: overmesh.v1.CoordinationService.StreamNetMap:output_type -> overmesh.v1.NetMap
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	0, // 0: overmesh.v1.SignalEnvelope.kind:type_name -> overmesh.v1.SignalKind
+	8, // 1: overmesh.v1.NetMap.self:type_name -> overmesh.v1.Node
+	9, // 2: overmesh.v1.NetMap.peers:type_name -> overmesh.v1.Peer
+	2, // 3: overmesh.v1.CoordinationService.RegisterNode:input_type -> overmesh.v1.RegisterNodeRequest
+	6, // 4: overmesh.v1.CoordinationService.StreamNetMap:input_type -> overmesh.v1.StreamNetMapRequest
+	4, // 5: overmesh.v1.CoordinationService.UpdateEndpoints:input_type -> overmesh.v1.UpdateEndpointsRequest
+	1, // 6: overmesh.v1.CoordinationService.SignalStream:input_type -> overmesh.v1.SignalEnvelope
+	3, // 7: overmesh.v1.CoordinationService.RegisterNode:output_type -> overmesh.v1.RegisterNodeResponse
+	7, // 8: overmesh.v1.CoordinationService.StreamNetMap:output_type -> overmesh.v1.NetMap
+	5, // 9: overmesh.v1.CoordinationService.UpdateEndpoints:output_type -> overmesh.v1.UpdateEndpointsResponse
+	1, // 10: overmesh.v1.CoordinationService.SignalStream:output_type -> overmesh.v1.SignalEnvelope
+	7, // [7:11] is the sub-list for method output_type
+	3, // [3:7] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_overmesh_v1_coordination_proto_init() }
@@ -562,13 +856,14 @@ func file_overmesh_v1_coordination_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_overmesh_v1_coordination_proto_rawDesc), len(file_overmesh_v1_coordination_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   6,
+			NumEnums:      1,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_overmesh_v1_coordination_proto_goTypes,
 		DependencyIndexes: file_overmesh_v1_coordination_proto_depIdxs,
+		EnumInfos:         file_overmesh_v1_coordination_proto_enumTypes,
 		MessageInfos:      file_overmesh_v1_coordination_proto_msgTypes,
 	}.Build()
 	File_overmesh_v1_coordination_proto = out.File

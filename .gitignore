@@ -9,6 +9,12 @@
 *.test
 coverage.out
 
+# Web UI
+/webui/node_modules/
+
+# Server runtime data from local runs
+/overmesh-server-data/
+
 # Editor/OS noise
 .DS_Store
 .idea/

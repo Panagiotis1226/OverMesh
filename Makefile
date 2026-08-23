@@ -29,6 +29,14 @@ proto:
 	$(TOOLS)/buf lint
 	$(TOOLS)/buf generate
 
+## webui: rebuild the embedded admin UI (needs node); dist/ is committed
+webui:
+	cd webui && npm install && npm run build
+
+## integration: Phase 1 end-to-end test (Linux, needs sudo)
+integration:
+	sudo env "PATH=$(PATH)" test/integration/phase1.sh
+
 ## tools: install buf + protoc plugins into ./.tools
 tools:
 	GOBIN=$(TOOLS) go install github.com/bufbuild/buf/cmd/buf@v1.50.0

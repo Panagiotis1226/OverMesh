@@ -86,7 +86,7 @@ Each phase is small, independently testable, and ends with a concrete **exit tes
 
 - `magicsock` v1: STUN discovery of public endpoint (pion/stun), candidate exchange through a server-relayed signaling channel, **pion/ice** holepunch, WG endpoint switched to the winning candidate pair; persistent keepalives; **endpoint roaming** (Wi-Fi→hotspot mid-session re-punches without dropping the tunnel).
 - Server hosts 1+ STUN listeners so self-hosters need nothing external (configurable extra STUN servers).
-- **Exit test:** lab matrix — full-cone↔full-cone, cone↔port-restricted, cone↔symmetric punch direct; symmetric↔symmetric fails cleanly (relay comes next phase); `overmesh status` shows `direct <ip:port>` vs `connecting`.
+- **Exit test:** lab matrix — cone↔cone punches direct (including endpoint roaming recovery); any pairing involving a symmetric NAT fails *cleanly* into a "no path" state (netfilter cone NATs are port-restricted, and port-restricted↔symmetric is not holepunchable — honest relay territory for Phase 3); `overmesh status` shows `direct <ip:port> (rtt)` vs `connecting` vs `none`.
 
 ### Phase 3 — Embedded DERP-style relay (OMR) + fail-open connectivity
 

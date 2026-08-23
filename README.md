@@ -2,7 +2,7 @@
 
 A fully self-hostable **WireGuard-based overlay mesh VPN** — control plane included — in the Tailscale / NetBird class.
 
-> Status: **planning**. See [`docs/PLAN.md`](docs/PLAN.md) for the full phased build plan.
+> Status: **Phase 0 complete** — monorepo, coordination protocol v1 (protobuf/gRPC), walking-skeleton binaries, NAT-simulation lab, CI with cross-compiled artifacts. See [`docs/PLAN.md`](docs/PLAN.md) for the full phased build plan.
 
 ## What it will do
 
@@ -56,3 +56,16 @@ Go (server, daemon, CLI, relay) · wireguard-go + wgctrl · pion/stun + pion/ice
 | 10 | Hardening, metrics, HA, security review → 1.0 |
 
 Full details, exit tests per phase, and design rationale: [`docs/PLAN.md`](docs/PLAN.md).
+
+## Development
+
+```sh
+make build       # all four binaries into ./bin (needs Go 1.25+)
+make test        # unit tests with the race detector
+make tools proto # regenerate gRPC/protobuf code after editing proto/
+sudo test/lab/lab.sh up && sudo test/lab/lab.sh verify   # NAT lab (Linux)
+```
+
+Prebuilt binaries for linux/darwin × amd64/arm64 are attached to every CI
+run — GitHub → Actions → pick the latest run → Artifacts. The NAT lab is
+documented in [`test/lab/README.md`](test/lab/README.md).

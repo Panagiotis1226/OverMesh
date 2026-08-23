@@ -1,0 +1,15 @@
+# Build output
+/bin/
+/dist/
+
+# Local tooling (installed via `make tools`)
+/.tools/
+
+# Test artifacts
+*.test
+coverage.out
+
+# Editor/OS noise
+.DS_Store
+.idea/
+.vscode/

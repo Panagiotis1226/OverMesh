@@ -1,0 +1,8 @@
+version: v2
+plugins:
+  - local: .tools/protoc-gen-go
+    out: gen
+    opt: module=github.com/panagiotis1226/overmesh/gen
+  - local: .tools/protoc-gen-go-grpc
+    out: gen
+    opt: module=github.com/panagiotis1226/overmesh/gen

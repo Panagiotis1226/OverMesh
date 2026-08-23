@@ -1,0 +1,94 @@
+// OverMesh coordination protocol v1.
+//
+// This is the control-plane wire contract between overmeshd (node daemon)
+// and overmesh-server (coordination server). Phase 0 defines the shapes;
+// Phase 1 implements them. Fields are lean on purpose — the schema grows
+// with the phases (relay maps in Phase 3, DNS + policy in Phase 4, routes
+// in Phase 5).
+syntax = "proto3";
+
+package overmesh.v1;
+
+option go_package = "github.com/panagiotis1226/overmesh/gen/overmeshv1";
+
+// CoordinationService is the control-plane service every node talks to.
+service CoordinationService {
+  // RegisterNode authenticates a node (via a setup key on first contact,
+  // via its machine key thereafter) and returns its identity and overlay
+  // addresses.
+  rpc RegisterNode(RegisterNodeRequest) returns (RegisterNodeResponse);
+
+  // StreamNetMap delivers the initial network map and then pushes a new
+  // NetMap whenever anything the node cares about changes. The stream is
+  // long-lived; reconnecting with the same node identity resumes it.
+  rpc StreamNetMap(StreamNetMapRequest) returns (stream NetMap);
+}
+
+// RegisterNodeRequest identifies a device to the control plane.
+//
+// Key model (two keys per node, like Tailscale):
+//   - machine_key: long-lived curve25519 identity of the device itself,
+//     generated once at first run and kept on disk. Authenticates the
+//     device to the control plane.
+//   - node_key: the WireGuard public key used on the data plane. Rotatable
+//     without re-enrolling the device.
+message RegisterNodeRequest {
+  // 32-byte curve25519 public key, its text form is "mkey:<hex>".
+  bytes machine_key = 1;
+  // 32-byte WireGuard (curve25519) public key, text form "nodekey:<hex>".
+  bytes node_key = 2;
+  // Setup key ("sk-..."), required on first registration, empty afterwards.
+  string setup_key = 3;
+  string hostname = 4;
+  // GOOS value: "linux", "darwin", "windows", "ios", "android".
+  string os = 5;
+  string client_version = 6;
+}
+
+message RegisterNodeResponse {
+  // Stable numeric node ID assigned by the control plane.
+  uint64 node_id = 1;
+  // Network this node was placed in.
+  string network_id = 2;
+  // Overlay addresses in CIDR notation, e.g. "100.96.0.7/32".
+  string overlay_ipv4 = 3;
+  // e.g. "fdab:3f19:0:0::7/128".
+  string overlay_ipv6 = 4;
+}
+
+message StreamNetMapRequest {
+  bytes machine_key = 1;
+  // Last NetMap sequence number the client has applied; 0 for none.
+  // Lets a reconnecting client skip a redundant full map later on.
+  uint64 have_seq = 2;
+}
+
+// NetMap is the node's complete view of the network: itself, its peers,
+// and (in later phases) DNS config, packet filters, and the relay map.
+message NetMap {
+  // Monotonically increasing per-node sequence number.
+  uint64 seq = 1;
+  Node self = 2;
+  repeated Peer peers = 3;
+}
+
+// Node is the receiving node's own record.
+message Node {
+  uint64 node_id = 1;
+  string hostname = 2;
+  string network_id = 3;
+  repeated string overlay_ips = 4; // CIDR notation, v4 and v6
+}
+
+// Peer is another node this node may communicate with.
+message Peer {
+  uint64 node_id = 1;
+  string hostname = 2;
+  bytes node_key = 3;              // WireGuard public key (32 bytes)
+  repeated string overlay_ips = 4; // CIDR notation, v4 and v6
+  // Known UDP endpoints ("ip:port") to try for a direct connection.
+  // Phase 1 fills these with declared/LAN endpoints; Phase 2 adds
+  // STUN-discovered ones.
+  repeated string endpoints = 5;
+  bool online = 6;
+}

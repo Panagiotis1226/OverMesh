@@ -33,7 +33,7 @@ func (s *Service) RegisterNode(ctx context.Context, req *overmeshv1.RegisterNode
 		return nil, status.Error(codes.InvalidArgument, "zero key")
 	}
 
-	n, nw, err := s.C.Register(mkey, nkey, req.GetSetupKey(), req.GetHostname(), req.GetOs())
+	n, nw, err := s.C.Register(mkey, nkey, req.GetSetupKey(), req.GetHostname(), req.GetOs(), req.GetAdvertisedRoutes())
 	if err != nil {
 		return nil, status.Error(codes.PermissionDenied, err.Error())
 	}

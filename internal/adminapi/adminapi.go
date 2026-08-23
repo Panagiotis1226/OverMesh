@@ -84,6 +84,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/status", a.auth(a.handleStatus))
 	mux.HandleFunc("GET /api/devices", a.auth(a.handleDevices))
 	mux.HandleFunc("DELETE /api/devices/{id}", a.auth(a.handleDeleteDevice))
+	mux.HandleFunc("PUT /api/devices/{id}/routes", a.auth(a.handleSetRouteApproval))
 	mux.HandleFunc("GET /api/setupkeys", a.auth(a.handleSetupKeys))
 	mux.HandleFunc("POST /api/setupkeys", a.auth(a.handleCreateSetupKey))
 	mux.HandleFunc("DELETE /api/setupkeys/{id}", a.auth(a.handleRevokeSetupKey))
@@ -272,6 +273,9 @@ type deviceJSON struct {
 	Online   bool   `json:"online"`
 	LastSeen int64  `json:"last_seen"` // unix seconds, 0 = never
 	Created  int64  `json:"created"`
+	// Advertised routes with approval state; a default route
+	// (0.0.0.0/0 / ::/0) is an exit-node offer.
+	Routes []store.Route `json:"routes"`
 }
 
 func (a *API) handleDevices(w http.ResponseWriter, r *http.Request) {
@@ -290,6 +294,9 @@ func (a *API) handleDevices(w http.ResponseWriter, r *http.Request) {
 		if !n.LastSeen.IsZero() {
 			d.LastSeen = n.LastSeen.Unix()
 		}
+		if routes, err := a.st.NodeRoutes(n.ID); err == nil {
+			d.Routes = routes
+		}
 		out = append(out, d)
 	}
 	writeJSON(w, out)
@@ -307,6 +314,33 @@ func (a *API) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		httpError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+// handleSetRouteApproval flips approval on one advertised route; the
+// coordinator pushes new netmaps so the change is live immediately.
+func (a *API) handleSetRouteApproval(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		httpError(w, http.StatusBadRequest, "bad device id")
+		return
+	}
+	var req struct {
+		Route    string `json:"route"`
+		Approved bool   `json:"approved"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "bad request body")
+		return
+	}
+	if err := a.c.SetRouteApproved(id, req.Route, req.Approved); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			httpError(w, http.StatusNotFound, "no such device or route")
+			return
+		}
+		httpError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, map[string]any{"ok": true})

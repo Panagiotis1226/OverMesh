@@ -156,3 +156,36 @@ jobs:
           go build -o bin/om-lab-udpecho ./test/lab/udpecho
       - name: Bare-hostname DNS + live ACL enforcement
         run: sudo env "PATH=$PATH" test/integration/phase4.sh
+
+  routes:
+    name: Phase 5 subnet router + exit node
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build binaries
+        run: |
+          make build
+          go build -o bin/om-lab-udpecho ./test/lab/udpecho
+      - name: Approval-gated routes, exit-node egress, live revocation
+        run: sudo env "PATH=$PATH" test/integration/phase5.sh
+
+  bench:
+    name: Throughput bench (informational)
+    runs-on: ubuntu-latest
+    # Shared runners are too noisy for pass/fail thresholds; this job
+    # publishes numbers for the log, never blocks a merge.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build binaries
+        run: make build
+      - name: Install iperf3
+        run: sudo apt-get install -y --no-install-recommends iperf3
+      - name: iperf3 through the overlay (userspace / relay / kernel)
+        run: sudo env "PATH=$PATH" test/lab/bench.sh 5

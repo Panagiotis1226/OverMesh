@@ -79,12 +79,18 @@ func (c *Coordinator) allocatorFor(nw store.Network) (*ipam.Allocator, error) {
 
 // Register implements node registration: known machine keys re-register
 // (refreshing hostname/OS/node key), unknown ones must present a valid
-// setup key and get addresses allocated.
-func (c *Coordinator) Register(mkey key.MachinePublic, nkey key.NodePublic, setupKey, hostname, osName string) (store.Node, store.Network, error) {
+// setup key and get addresses allocated. advertisedRoutes is the node's
+// current route-offer set (replace semantics; approval state survives).
+func (c *Coordinator) Register(mkey key.MachinePublic, nkey key.NodePublic, setupKey, hostname, osName string, advertisedRoutes []string) (store.Node, store.Network, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	hostname = sanitizeHostname(hostname)
+
+	routes, err := normalizeRoutes(advertisedRoutes)
+	if err != nil {
+		return store.Node{}, store.Network{}, err
+	}
 
 	if n, err := c.st.NodeByMachineKey(mkey.String()); err == nil {
 		// Re-registration. Keep the stored hostname unless the caller's
@@ -96,6 +102,9 @@ func (c *Coordinator) Register(mkey key.MachinePublic, nkey key.NodePublic, setu
 			}
 		}
 		if err := c.st.UpdateNodeOnRegister(n.ID, nkey.String(), newName, osName); err != nil {
+			return store.Node{}, store.Network{}, err
+		}
+		if err := c.st.SetAdvertisedRoutes(n.ID, routes); err != nil {
 			return store.Node{}, store.Network{}, err
 		}
 		n.NodeKey = nkey.String()
@@ -153,6 +162,11 @@ func (c *Coordinator) Register(mkey key.MachinePublic, nkey key.NodePublic, setu
 	n.IPv6 = v6
 	if err := c.st.UpdateNodeIPv6(n.ID, v6); err != nil {
 		return store.Node{}, store.Network{}, err
+	}
+	if len(routes) > 0 {
+		if err := c.st.SetAdvertisedRoutes(n.ID, routes); err != nil {
+			return store.Node{}, store.Network{}, err
+		}
 	}
 
 	log.Printf("coord: registered %s (%s, %s) in %s as %s/%s", n.Hostname, osName, mkey, nw.Name, n.IPv4, n.IPv6)
@@ -333,10 +347,11 @@ func (c *Coordinator) buildNetMapLocked(n store.Node) (*overmeshv1.NetMap, error
 		Filter:        filterRules,
 		FilterEnabled: filterEnabled,
 		Self: &overmeshv1.Node{
-			NodeId:     uint64(n.ID),
-			Hostname:   n.Hostname,
-			NetworkId:  nw.Name,
-			OverlayIps: overlayCIDRs(n),
+			NodeId:         uint64(n.ID),
+			Hostname:       n.Hostname,
+			NetworkId:      nw.Name,
+			OverlayIps:     overlayCIDRs(n),
+			ApprovedRoutes: c.approvedRoutesLocked(n.ID),
 		},
 	}
 	if c.DNSBase != "" {
@@ -351,15 +366,71 @@ func (c *Coordinator) buildNetMapLocked(n store.Node) (*overmeshv1.NetMap, error
 			continue
 		}
 		nm.Peers = append(nm.Peers, &overmeshv1.Peer{
-			NodeId:     uint64(p.ID),
-			Hostname:   p.Hostname,
-			NodeKey:    nkey,
-			OverlayIps: overlayCIDRs(p),
-			Endpoints:  p.Endpoints,
-			Online:     c.online[p.ID],
+			NodeId:        uint64(p.ID),
+			Hostname:      p.Hostname,
+			NodeKey:       nkey,
+			OverlayIps:    overlayCIDRs(p),
+			Endpoints:     p.Endpoints,
+			Online:        c.online[p.ID],
+			AllowedRoutes: c.approvedRoutesLocked(p.ID),
 		})
 	}
 	return nm, nil
+}
+
+// approvedRoutesLocked returns a node's approved routes, or nil on any
+// error (a missing routes row must never block a netmap). Held: c.mu.
+func (c *Coordinator) approvedRoutesLocked(nodeID int64) []string {
+	routes, err := c.st.ApprovedNodeRoutes(nodeID)
+	if err != nil {
+		return nil
+	}
+	return routes
+}
+
+// normalizeRoutes canonicalizes and dedupes a route-offer set.
+func normalizeRoutes(in []string) ([]string, error) {
+	seen := make(map[string]bool, len(in))
+	var out []string
+	for _, r := range in {
+		norm, err := store.NormalizeRoute(r)
+		if err != nil {
+			return nil, fmt.Errorf("bad advertised route %q: %w", r, err)
+		}
+		if !seen[norm] {
+			seen[norm] = true
+			out = append(out, norm)
+		}
+	}
+	return out, nil
+}
+
+// NodeRoutes lists a node's advertised routes with approval state (admin
+// API).
+func (c *Coordinator) NodeRoutes(nodeID int64) ([]store.Route, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.st.NodeRoutes(nodeID)
+}
+
+// SetRouteApproved flips approval on one advertised route and pushes new
+// netmaps to the whole network (admin API).
+func (c *Coordinator) SetRouteApproved(nodeID int64, route string, approved bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n, err := c.st.NodeByID(nodeID)
+	if err != nil {
+		return err
+	}
+	norm, err := store.NormalizeRoute(route)
+	if err != nil {
+		return err
+	}
+	if err := c.st.SetRouteApproved(nodeID, norm, approved); err != nil {
+		return err
+	}
+	c.notifyNetworkLocked(n.NetworkID)
+	return nil
 }
 
 func overlayCIDRs(n store.Node) []string {

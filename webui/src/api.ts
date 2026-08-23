@@ -1,5 +1,10 @@
 // Thin typed client for the overmesh-server admin API.
 
+export type Route = {
+  route: string
+  approved: boolean
+}
+
 export type Device = {
   id: number
   hostname: string
@@ -9,6 +14,7 @@ export type Device = {
   online: boolean
   last_seen: number
   created: number
+  routes: Route[] | null
 }
 
 export type SetupKey = {
@@ -72,6 +78,8 @@ export const api = {
   status: () => req<ServerStatus>('GET', '/api/status'),
   devices: () => req<Device[]>('GET', '/api/devices'),
   deleteDevice: (id: number) => req<{ ok: boolean }>('DELETE', `/api/devices/${id}`),
+  setRouteApproval: (id: number, route: string, approved: boolean) =>
+    req<{ ok: boolean }>('PUT', `/api/devices/${id}/routes`, { route, approved }),
   setupKeys: () => req<SetupKey[]>('GET', '/api/setupkeys'),
   createSetupKey: (reusable: boolean, expiresHours: number) =>
     req<SetupKey>('POST', '/api/setupkeys', { reusable, expires_hours: expiresHours }),

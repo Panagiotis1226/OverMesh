@@ -75,9 +75,9 @@ func TestRelayExchange(t *testing.T) {
 	bPriv, bPub := testKeys(t)
 
 	aRecv, bRecv := newRecvRec(), newRecvRec()
-	ca := NewClient(url, aPriv, aPub, aRecv.cb, t.Logf)
+	ca := NewClient(url, aPriv, aPub, aRecv.cb, t.Logf, nil)
 	defer ca.Close()
-	cb := NewClient(url, bPriv, bPub, bRecv.cb, t.Logf)
+	cb := NewClient(url, bPriv, bPub, bRecv.cb, t.Logf, nil)
 	defer cb.Close()
 	waitConnected(t, ca)
 	waitConnected(t, cb)
@@ -104,7 +104,7 @@ func TestRelaySendToOfflinePeerIsDropped(t *testing.T) {
 	aPriv, aPub := testKeys(t)
 	_, ghostPub := testKeys(t)
 
-	ca := NewClient(url, aPriv, aPub, newRecvRec().cb, t.Logf)
+	ca := NewClient(url, aPriv, aPub, newRecvRec().cb, t.Logf, nil)
 	defer ca.Close()
 	waitConnected(t, ca)
 
@@ -122,15 +122,15 @@ func TestRelayNewestConnectionWins(t *testing.T) {
 	aPriv, aPub := testKeys(t)
 	bPriv, bPub := testKeys(t)
 
-	ca := NewClient(url, aPriv, aPub, newRecvRec().cb, t.Logf)
+	ca := NewClient(url, aPriv, aPub, newRecvRec().cb, t.Logf, nil)
 	defer ca.Close()
 	waitConnected(t, ca)
 
 	// Two clients with b's identity: the second replaces the first.
-	old := NewClient(url, bPriv, bPub, newRecvRec().cb, t.Logf)
+	old := NewClient(url, bPriv, bPub, newRecvRec().cb, t.Logf, nil)
 	waitConnected(t, old)
 	fresh := newRecvRec()
-	nu := NewClient(url, bPriv, bPub, fresh.cb, t.Logf)
+	nu := NewClient(url, bPriv, bPub, fresh.cb, t.Logf, nil)
 	defer nu.Close()
 	waitConnected(t, nu)
 	old.Close() // old one is dead server-side already; stop its retries
@@ -149,7 +149,7 @@ func TestRelayRejectsBadAuth(t *testing.T) {
 	aPriv, _ := testKeys(t)
 	_, wrongPub := testKeys(t)
 
-	c := NewClient(url, aPriv, wrongPub, newRecvRec().cb, t.Logf)
+	c := NewClient(url, aPriv, wrongPub, newRecvRec().cb, t.Logf, nil)
 	defer c.Close()
 	time.Sleep(700 * time.Millisecond)
 	if c.Connected() {

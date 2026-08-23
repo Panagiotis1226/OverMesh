@@ -35,7 +35,8 @@ func main() {
 		socket      = flag.String("socket", daemon.DefaultSocketPath(), "control socket path for the overmesh CLI")
 		listenPort  = flag.Uint("port", 41642, "WireGuard UDP listen port")
 		iface       = flag.String("iface", "overmesh0", "interface name (macOS always gets utunN)")
-		wgMode      = flag.String("wg-mode", "auto", "WireGuard engine: auto (userspace + NAT traversal) | kernel (LAN/static only) | userspace")
+		wgMode      = flag.String("wg-mode", "auto", "WireGuard engine: auto (userspace + NAT traversal) | kernel (fastest; LAN/static-endpoint servers, e.g. dedicated exit nodes)")
+		mtu         = flag.Int("mtu", 0, "tunnel MTU (default 1280 = safe anywhere; 1420 on a normal 1500 underlay for more throughput)")
 		useTLS      = flag.Bool("tls", false, "connect to the control plane over TLS")
 		showVersion = flag.Bool("version", false, "print version and exit")
 	)
@@ -51,6 +52,7 @@ func main() {
 		ListenPort: uint16(*listenPort),
 		IfaceName:  *iface,
 		WGMode:     *wgMode,
+		MTU:        *mtu,
 		UseTLS:     *useTLS,
 	})
 	if err != nil {

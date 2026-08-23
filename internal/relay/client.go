@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/url"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/crypto/nacl/box"
@@ -23,6 +24,9 @@ type Client struct {
 	pub      [32]byte
 	onPacket func(src [32]byte, payload []byte)
 	logf     func(string, ...any)
+	// dialControl, when set, is applied to the TCP dial (the daemon
+	// stamps SO_MARK so relay traffic bypasses exit-node routing).
+	dialControl func(network, address string, c syscall.RawConn) error
 
 	mu     sync.Mutex
 	conn   net.Conn
@@ -33,13 +37,14 @@ type Client struct {
 
 // NewClient starts a client for relayURL, authenticating with the node
 // private key. onPacket runs on the read goroutine for every relayed
-// payload.
-func NewClient(relayURL string, nodePriv, nodePub [32]byte, onPacket func(src [32]byte, payload []byte), logf func(string, ...any)) *Client {
+// payload. dialControl (optional) is applied to the underlying TCP
+// socket before connecting.
+func NewClient(relayURL string, nodePriv, nodePub [32]byte, onPacket func(src [32]byte, payload []byte), logf func(string, ...any), dialControl func(network, address string, c syscall.RawConn) error) *Client {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	c := &Client{url: relayURL, priv: nodePriv, pub: nodePub, onPacket: onPacket, logf: logf, cancel: cancel}
+	c := &Client{url: relayURL, priv: nodePriv, pub: nodePub, onPacket: onPacket, logf: logf, cancel: cancel, dialControl: dialControl}
 	go c.run(ctx)
 	return c
 }
@@ -189,7 +194,7 @@ func (c *Client) dial(ctx context.Context) (net.Conn, *bufio.Reader, error) {
 		}
 	}
 
-	d := &net.Dialer{Timeout: 15 * time.Second}
+	d := &net.Dialer{Timeout: 15 * time.Second, Control: c.dialControl}
 	var conn net.Conn
 	if u.Scheme == "https" {
 		conn, err = tls.DialWithDialer(d, "tcp", host, &tls.Config{MinVersion: tls.VersionTLS12})

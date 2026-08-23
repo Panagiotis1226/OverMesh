@@ -8,13 +8,16 @@
 package magicsock
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/pion/ice/v4"
@@ -45,11 +48,20 @@ type Bind struct {
 	relayMu     sync.Mutex
 	sendToRelay func(dst [32]byte, payload []byte) error
 	relayInbox  chan relayPacket
+
+	// sockControl, when set before the device opens the bind, is applied
+	// to the UDP socket (the daemon stamps SO_MARK so WireGuard traffic
+	// bypasses exit-node policy routing).
+	sockControl func(network, address string, c syscall.RawConn) error
 }
 
 type relayPacket struct {
 	src  [32]byte
 	data []byte
+}
+
+func itoa(p uint16) string {
+	return strconv.Itoa(int(p))
 }
 
 // NewBind returns an unopened Bind; wireguard-go calls Open when the
@@ -60,6 +72,14 @@ func NewBind(logf func(string, ...any)) *Bind {
 		ready:      make(chan struct{}),
 		relayInbox: make(chan relayPacket, 256),
 	}
+}
+
+// SetSocketControl installs a control function applied to the UDP
+// socket at Open time. Call before handing the Bind to the engine.
+func (b *Bind) SetSocketControl(fn func(network, address string, c syscall.RawConn) error) {
+	b.mu.Lock()
+	b.sockControl = fn
+	b.mu.Unlock()
 }
 
 // SetRelaySender installs (or clears, with nil) the function used to
@@ -114,10 +134,12 @@ func (b *Bind) Open(port uint16) ([]conn.ReceiveFunc, uint16, error) {
 		return nil, 0, conn.ErrBindAlreadyOpen
 	}
 	// One dual-stack socket ("udp" + wildcard binds v4 and v6).
-	pc, err := net.ListenUDP("udp", &net.UDPAddr{Port: int(port)})
+	lc := net.ListenConfig{Control: b.sockControl}
+	pconn, err := lc.ListenPacket(context.Background(), "udp", net.JoinHostPort("", itoa(port)))
 	if err != nil {
 		return nil, 0, err
 	}
+	pc := pconn.(*net.UDPConn)
 	b.pc = pc
 	actual := uint16(pc.LocalAddr().(*net.UDPAddr).Port)
 

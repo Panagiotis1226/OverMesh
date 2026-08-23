@@ -20,9 +20,18 @@ import (
 	"github.com/panagiotis1226/overmesh/internal/filter"
 )
 
-// MTU is conservative for Phase 1; per-path PMTU probing raises it in
-// Phase 5.
-const MTU = 1280
+// DefaultMTU is safe across any underlay (v6 minimum 1280 minus no
+// margin — WireGuard overhead is already outside this number). On known
+// networks -mtu 1420 (typical for a 1500 underlay) buys real
+// throughput; automatic per-path PMTU probing is future work.
+const DefaultMTU = 1280
+
+func (o *Options) mtu() int {
+	if o.MTU > 0 {
+		return o.MTU
+	}
+	return DefaultMTU
+}
 
 // PeerConfig is one WireGuard peer.
 type PeerConfig struct {
@@ -46,6 +55,7 @@ type Options struct {
 	Addresses  []netip.Prefix // this node's overlay addresses (/32, /128)
 	Routes     []netip.Prefix // overlay prefixes routed into the interface
 	Mode       string         // "auto", "kernel", "userspace"
+	MTU        int            // 0 = DefaultMTU
 	// Bind, when set, replaces the default UDP socket of the userspace
 	// engine — magicsock injects its shared STUN/WG socket here. Ignored
 	// by the kernel engine.

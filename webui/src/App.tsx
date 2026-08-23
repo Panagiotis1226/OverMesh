@@ -130,6 +130,19 @@ function Devices({ devices, onChanged }: { devices: Device[]; onChanged: () => v
     onChanged()
   }
 
+  const toggleRoute = async (d: Device, route: string, approved: boolean) => {
+    if (
+      approved &&
+      (route === '0.0.0.0/0' || route === '::/0') &&
+      !confirm(`Approve ${d.hostname} as an EXIT NODE? Devices that select it will send all their internet traffic through it.`)
+    )
+      return
+    await api.setRouteApproval(d.id, route, approved)
+    onChanged()
+  }
+
+  const anyRoutes = devices.some((d) => (d.routes?.length ?? 0) > 0)
+
   return (
     <section className="card">
       <h2>
@@ -145,6 +158,7 @@ function Devices({ devices, onChanged }: { devices: Device[]; onChanged: () => v
               <th>overlay IPv4</th>
               <th>overlay IPv6</th>
               <th>os</th>
+              {anyRoutes && <th>routes</th>}
               <th>state</th>
               <th>last seen</th>
               <th />
@@ -161,6 +175,29 @@ function Devices({ devices, onChanged }: { devices: Device[]; onChanged: () => v
                   <code>{d.ipv6}</code>
                 </td>
                 <td>{d.os}</td>
+                {anyRoutes && (
+                  <td>
+                    <div className="chips">
+                      {(d.routes ?? []).map((r) => {
+                        const isExit = r.route === '0.0.0.0/0' || r.route === '::/0'
+                        return (
+                          <button
+                            key={r.route}
+                            className={r.approved ? 'chip on' : 'chip'}
+                            title={
+                              (r.approved ? 'Approved — click to revoke' : 'Awaiting approval — click to approve') +
+                              (isExit ? ' (exit node)' : '')
+                            }
+                            onClick={() => toggleRoute(d, r.route, !r.approved)}
+                          >
+                            {isExit ? `exit node (${r.route})` : r.route}
+                            {r.approved ? ' ✓' : ' ?'}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </td>
+                )}
                 <td>
                   <span className={d.online ? 'pill online' : 'pill offline'}>
                     {d.online ? 'online' : 'offline'}

@@ -83,6 +83,13 @@ message RegisterNodeRequest {
   // GOOS value: "linux", "darwin", "windows", "ios", "android".
   string os = 5;
   string client_version = 6;
+  // Routes this node OFFERS to serve for the mesh (CIDR). A default
+  // route (0.0.0.0/0 or ::/0) is an exit-node offer. Offers do nothing
+  // until an admin approves them in the web UI; the approved subset
+  // comes back in NetMap (self.approved_routes for the router itself,
+  // peer.allowed_routes for everyone else). Re-registering replaces the
+  // offer set; approval state is remembered per route.
+  repeated string advertised_routes = 7;
 }
 
 message RegisterNodeResponse {
@@ -171,6 +178,9 @@ message Node {
   string hostname = 2;
   string network_id = 3;
   repeated string overlay_ips = 4; // CIDR notation, v4 and v6
+  // The admin-approved subset of this node's advertised_routes. The
+  // daemon enables forwarding + NAT only for these.
+  repeated string approved_routes = 5;
 }
 
 // Peer is another node this node may communicate with.
@@ -184,4 +194,9 @@ message Peer {
   // STUN-discovered ones.
   repeated string endpoints = 5;
   bool online = 6;
+  // Admin-approved routes this peer serves (CIDR). Subnet routes go
+  // into the peer's WireGuard AllowedIPs and the OS routing table on
+  // every node; a default route marks an exit-node OFFER and is only
+  // activated when the user selects this peer as their exit node.
+  repeated string allowed_routes = 7;
 }

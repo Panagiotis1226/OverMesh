@@ -22,7 +22,7 @@ type userspaceEngine struct {
 }
 
 func newUserspace(opts Options) (Engine, error) {
-	rawTun, err := tun.CreateTUN(tunName(opts.IfaceName), MTU)
+	rawTun, err := tun.CreateTUN(tunName(opts.IfaceName), opts.mtu())
 	if err != nil {
 		return nil, fmt.Errorf("wgengine: create tun: %w", err)
 	}
@@ -52,7 +52,7 @@ func newUserspace(opts Options) (Engine, error) {
 		dev.Close()
 		return nil, fmt.Errorf("wgengine: device up: %w", err)
 	}
-	if err := configureInterface(name, opts.Addresses, opts.Routes, opts.Logf); err != nil {
+	if err := configureInterface(name, opts.mtu(), opts.Addresses, opts.Routes, opts.Logf); err != nil {
 		dev.Close()
 		return nil, fmt.Errorf("wgengine: interface config: %w", err)
 	}

@@ -21,7 +21,13 @@ service CoordinationService {
   // StreamNetMap delivers the initial network map and then pushes a new
   // NetMap whenever anything the node cares about changes. The stream is
   // long-lived; reconnecting with the same node identity resumes it.
+  // While the stream is open the node is considered online.
   rpc StreamNetMap(StreamNetMapRequest) returns (stream NetMap);
+
+  // UpdateEndpoints reports the node's currently reachable UDP endpoints
+  // ("ip:port"). Phase 1 sends locally-discovered addresses; Phase 2 adds
+  // STUN-discovered ones.
+  rpc UpdateEndpoints(UpdateEndpointsRequest) returns (UpdateEndpointsResponse);
 }
 
 // RegisterNodeRequest identifies a device to the control plane.
@@ -54,7 +60,17 @@ message RegisterNodeResponse {
   string overlay_ipv4 = 3;
   // e.g. "fdab:3f19:0:0::7/128".
   string overlay_ipv6 = 4;
+  // The (possibly deduplicated/sanitized) name the control plane assigned.
+  string hostname = 5;
 }
+
+message UpdateEndpointsRequest {
+  bytes machine_key = 1;
+  // Reachable UDP endpoints as "ip:port", most-preferred first.
+  repeated string endpoints = 2;
+}
+
+message UpdateEndpointsResponse {}
 
 message StreamNetMapRequest {
   bytes machine_key = 1;

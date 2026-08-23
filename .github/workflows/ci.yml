@@ -86,18 +86,18 @@ jobs:
           sudo env "PATH=$PATH" test/lab/lab.sh verify
           sudo env "PATH=$PATH" test/lab/lab.sh down
 
-  skeleton-e2e:
-    name: Walking skeleton end-to-end
+  integration:
+    name: Phase 1 mesh e2e (${{ matrix.wg_mode }} WG)
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        wg_mode: [kernel, userspace]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-      - name: Server up, healthz, daemon probe
-        run: |
-          make build
-          ./bin/overmesh-server -http 127.0.0.1:8080 -grpc 127.0.0.1:41641 &
-          sleep 2
-          curl -fsS http://127.0.0.1:8080/healthz
-          ./bin/overmeshd -probe -server 127.0.0.1:41641
+      - name: Build binaries
+        run: make build
+      - name: Two nodes register, stream netmaps, ping over the overlay
+        run: sudo env "PATH=$PATH" test/integration/phase1.sh ${{ matrix.wg_mode }}

@@ -134,7 +134,9 @@ type RegisterNodeResponse struct {
 	// Overlay addresses in CIDR notation, e.g. "100.96.0.7/32".
 	OverlayIpv4 string `protobuf:"bytes,3,opt,name=overlay_ipv4,json=overlayIpv4,proto3" json:"overlay_ipv4,omitempty"`
 	// e.g. "fdab:3f19:0:0::7/128".
-	OverlayIpv6   string `protobuf:"bytes,4,opt,name=overlay_ipv6,json=overlayIpv6,proto3" json:"overlay_ipv6,omitempty"`
+	OverlayIpv6 string `protobuf:"bytes,4,opt,name=overlay_ipv6,json=overlayIpv6,proto3" json:"overlay_ipv6,omitempty"`
+	// The (possibly deduplicated/sanitized) name the control plane assigned.
+	Hostname      string `protobuf:"bytes,5,opt,name=hostname,proto3" json:"hostname,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -197,6 +199,102 @@ func (x *RegisterNodeResponse) GetOverlayIpv6() string {
 	return ""
 }
 
+func (x *RegisterNodeResponse) GetHostname() string {
+	if x != nil {
+		return x.Hostname
+	}
+	return ""
+}
+
+type UpdateEndpointsRequest struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	MachineKey []byte                 `protobuf:"bytes,1,opt,name=machine_key,json=machineKey,proto3" json:"machine_key,omitempty"`
+	// Reachable UDP endpoints as "ip:port", most-preferred first.
+	Endpoints     []string `protobuf:"bytes,2,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateEndpointsRequest) Reset() {
+	*x = UpdateEndpointsRequest{}
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateEndpointsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateEndpointsRequest) ProtoMessage() {}
+
+func (x *UpdateEndpointsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateEndpointsRequest.ProtoReflect.Descriptor instead.
+func (*UpdateEndpointsRequest) Descriptor() ([]byte, []int) {
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *UpdateEndpointsRequest) GetMachineKey() []byte {
+	if x != nil {
+		return x.MachineKey
+	}
+	return nil
+}
+
+func (x *UpdateEndpointsRequest) GetEndpoints() []string {
+	if x != nil {
+		return x.Endpoints
+	}
+	return nil
+}
+
+type UpdateEndpointsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateEndpointsResponse) Reset() {
+	*x = UpdateEndpointsResponse{}
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateEndpointsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateEndpointsResponse) ProtoMessage() {}
+
+func (x *UpdateEndpointsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateEndpointsResponse.ProtoReflect.Descriptor instead.
+func (*UpdateEndpointsResponse) Descriptor() ([]byte, []int) {
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{3}
+}
+
 type StreamNetMapRequest struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	MachineKey []byte                 `protobuf:"bytes,1,opt,name=machine_key,json=machineKey,proto3" json:"machine_key,omitempty"`
@@ -209,7 +307,7 @@ type StreamNetMapRequest struct {
 
 func (x *StreamNetMapRequest) Reset() {
 	*x = StreamNetMapRequest{}
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[2]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -221,7 +319,7 @@ func (x *StreamNetMapRequest) String() string {
 func (*StreamNetMapRequest) ProtoMessage() {}
 
 func (x *StreamNetMapRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[2]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -234,7 +332,7 @@ func (x *StreamNetMapRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamNetMapRequest.ProtoReflect.Descriptor instead.
 func (*StreamNetMapRequest) Descriptor() ([]byte, []int) {
-	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{2}
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *StreamNetMapRequest) GetMachineKey() []byte {
@@ -265,7 +363,7 @@ type NetMap struct {
 
 func (x *NetMap) Reset() {
 	*x = NetMap{}
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[3]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -277,7 +375,7 @@ func (x *NetMap) String() string {
 func (*NetMap) ProtoMessage() {}
 
 func (x *NetMap) ProtoReflect() protoreflect.Message {
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[3]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -290,7 +388,7 @@ func (x *NetMap) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetMap.ProtoReflect.Descriptor instead.
 func (*NetMap) Descriptor() ([]byte, []int) {
-	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{3}
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *NetMap) GetSeq() uint64 {
@@ -327,7 +425,7 @@ type Node struct {
 
 func (x *Node) Reset() {
 	*x = Node{}
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[4]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -339,7 +437,7 @@ func (x *Node) String() string {
 func (*Node) ProtoMessage() {}
 
 func (x *Node) ProtoReflect() protoreflect.Message {
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[4]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -352,7 +450,7 @@ func (x *Node) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Node.ProtoReflect.Descriptor instead.
 func (*Node) Descriptor() ([]byte, []int) {
-	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{4}
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Node) GetNodeId() uint64 {
@@ -401,7 +499,7 @@ type Peer struct {
 
 func (x *Peer) Reset() {
 	*x = Peer{}
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[5]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -413,7 +511,7 @@ func (x *Peer) String() string {
 func (*Peer) ProtoMessage() {}
 
 func (x *Peer) ProtoReflect() protoreflect.Message {
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[5]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -426,7 +524,7 @@ func (x *Peer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Peer.ProtoReflect.Descriptor instead.
 func (*Peer) Descriptor() ([]byte, []int) {
-	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{5}
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Peer) GetNodeId() uint64 {
@@ -483,13 +581,19 @@ const file_overmesh_v1_coordination_proto_rawDesc = "" +
 	"\tsetup_key\x18\x03 \x01(\tR\bsetupKey\x12\x1a\n" +
 	"\bhostname\x18\x04 \x01(\tR\bhostname\x12\x0e\n" +
 	"\x02os\x18\x05 \x01(\tR\x02os\x12%\n" +
-	"\x0eclient_version\x18\x06 \x01(\tR\rclientVersion\"\x94\x01\n" +
+	"\x0eclient_version\x18\x06 \x01(\tR\rclientVersion\"\xb0\x01\n" +
 	"\x14RegisterNodeResponse\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\x12\x1d\n" +
 	"\n" +
 	"network_id\x18\x02 \x01(\tR\tnetworkId\x12!\n" +
 	"\foverlay_ipv4\x18\x03 \x01(\tR\voverlayIpv4\x12!\n" +
-	"\foverlay_ipv6\x18\x04 \x01(\tR\voverlayIpv6\"Q\n" +
+	"\foverlay_ipv6\x18\x04 \x01(\tR\voverlayIpv6\x12\x1a\n" +
+	"\bhostname\x18\x05 \x01(\tR\bhostname\"W\n" +
+	"\x16UpdateEndpointsRequest\x12\x1f\n" +
+	"\vmachine_key\x18\x01 \x01(\fR\n" +
+	"machineKey\x12\x1c\n" +
+	"\tendpoints\x18\x02 \x03(\tR\tendpoints\"\x19\n" +
+	"\x17UpdateEndpointsResponse\"Q\n" +
 	"\x13StreamNetMapRequest\x12\x1f\n" +
 	"\vmachine_key\x18\x01 \x01(\fR\n" +
 	"machineKey\x12\x19\n" +
@@ -512,10 +616,11 @@ const file_overmesh_v1_coordination_proto_rawDesc = "" +
 	"\voverlay_ips\x18\x04 \x03(\tR\n" +
 	"overlayIps\x12\x1c\n" +
 	"\tendpoints\x18\x05 \x03(\tR\tendpoints\x12\x16\n" +
-	"\x06online\x18\x06 \x01(\bR\x06online2\xb3\x01\n" +
+	"\x06online\x18\x06 \x01(\bR\x06online2\x91\x02\n" +
 	"\x13CoordinationService\x12S\n" +
 	"\fRegisterNode\x12 .overmesh.v1.RegisterNodeRequest\x1a!.overmesh.v1.RegisterNodeResponse\x12G\n" +
-	"\fStreamNetMap\x12 .overmesh.v1.StreamNetMapRequest\x1a\x13.overmesh.v1.NetMap0\x01B3Z1github.com/panagiotis1226/overmesh/gen/overmeshv1b\x06proto3"
+	"\fStreamNetMap\x12 .overmesh.v1.StreamNetMapRequest\x1a\x13.overmesh.v1.NetMap0\x01\x12\\\n" +
+	"\x0fUpdateEndpoints\x12#.overmesh.v1.UpdateEndpointsRequest\x1a$.overmesh.v1.UpdateEndpointsResponseB3Z1github.com/panagiotis1226/overmesh/gen/overmeshv1b\x06proto3"
 
 var (
 	file_overmesh_v1_coordination_proto_rawDescOnce sync.Once
@@ -529,24 +634,28 @@ func file_overmesh_v1_coordination_proto_rawDescGZIP() []byte {
 	return file_overmesh_v1_coordination_proto_rawDescData
 }
 
-var file_overmesh_v1_coordination_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_overmesh_v1_coordination_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_overmesh_v1_coordination_proto_goTypes = []any{
-	(*RegisterNodeRequest)(nil),  // 0: overmesh.v1.RegisterNodeRequest
-	(*RegisterNodeResponse)(nil), // 1: overmesh.v1.RegisterNodeResponse
-	(*StreamNetMapRequest)(nil),  // 2: overmesh.v1.StreamNetMapRequest
-	(*NetMap)(nil),               // 3: overmesh.v1.NetMap
-	(*Node)(nil),                 // 4: overmesh.v1.Node
-	(*Peer)(nil),                 // 5: overmesh.v1.Peer
+	(*RegisterNodeRequest)(nil),     // 0: overmesh.v1.RegisterNodeRequest
+	(*RegisterNodeResponse)(nil),    // 1: overmesh.v1.RegisterNodeResponse
+	(*UpdateEndpointsRequest)(nil),  // 2: overmesh.v1.UpdateEndpointsRequest
+	(*UpdateEndpointsResponse)(nil), // 3: overmesh.v1.UpdateEndpointsResponse
+	(*StreamNetMapRequest)(nil),     // 4: overmesh.v1.StreamNetMapRequest
+	(*NetMap)(nil),                  // 5: overmesh.v1.NetMap
+	(*Node)(nil),                    // 6: overmesh.v1.Node
+	(*Peer)(nil),                    // 7: overmesh.v1.Peer
 }
 var file_overmesh_v1_coordination_proto_depIdxs = []int32{
-	4, // 0: overmesh.v1.NetMap.self:type_name -> overmesh.v1.Node
-	5, // 1: overmesh.v1.NetMap.peers:type_name -> overmesh.v1.Peer
+	6, // 0: overmesh.v1.NetMap.self:type_name -> overmesh.v1.Node
+	7, // 1: overmesh.v1.NetMap.peers:type_name -> overmesh.v1.Peer
 	0, // 2: overmesh.v1.CoordinationService.RegisterNode:input_type -> overmesh.v1.RegisterNodeRequest
-	2, // 3: overmesh.v1.CoordinationService.StreamNetMap:input_type -> overmesh.v1.StreamNetMapRequest
-	1, // 4: overmesh.v1.CoordinationService.RegisterNode:output_type -> overmesh.v1.RegisterNodeResponse
-	3, // 5: overmesh.v1.CoordinationService.StreamNetMap:output_type -> overmesh.v1.NetMap
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
+	4, // 3: overmesh.v1.CoordinationService.StreamNetMap:input_type -> overmesh.v1.StreamNetMapRequest
+	2, // 4: overmesh.v1.CoordinationService.UpdateEndpoints:input_type -> overmesh.v1.UpdateEndpointsRequest
+	1, // 5: overmesh.v1.CoordinationService.RegisterNode:output_type -> overmesh.v1.RegisterNodeResponse
+	5, // 6: overmesh.v1.CoordinationService.StreamNetMap:output_type -> overmesh.v1.NetMap
+	3, // 7: overmesh.v1.CoordinationService.UpdateEndpoints:output_type -> overmesh.v1.UpdateEndpointsResponse
+	5, // [5:8] is the sub-list for method output_type
+	2, // [2:5] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
 	2, // [2:2] is the sub-list for extension extendee
 	0, // [0:2] is the sub-list for field type_name
@@ -563,7 +672,7 @@ func file_overmesh_v1_coordination_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_overmesh_v1_coordination_proto_rawDesc), len(file_overmesh_v1_coordination_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

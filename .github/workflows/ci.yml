@@ -99,5 +99,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - name: Build binaries
         run: make build
+      - name: Install wireguard-tools (failure diagnostics)
+        run: sudo apt-get install -y --no-install-recommends wireguard-tools
       - name: Two nodes register, stream netmaps, ping over the overlay
         run: sudo env "PATH=$PATH" test/integration/phase1.sh ${{ matrix.wg_mode }}

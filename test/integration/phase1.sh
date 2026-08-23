@@ -114,11 +114,13 @@ B4=$(get_ip $B "$WORK/b.sock" ipv4); B6=$(get_ip $B "$WORK/b.sock" ipv6)
 log "overlay addresses: a=$A4/$A6  b=$B4/$B6"
 
 log "the exit test: ping over the overlay"
-# First contact includes a WireGuard handshake; allow a few seconds of
-# convergence instead of failing on the first lost ICMP.
+# First contact includes a WireGuard handshake, and with Phase 1's naive
+# path handling convergence can take up to one keepalive cycle (25s) on
+# some kernels. Allow ~40s; Phase 2's magicsock replaces this with active
+# path management and tightens the budget.
 ping_ok() { # <ns> <addr> [-6]
   local n="$1" addr="$2" v="${3:-}"
-  for _ in $(seq 1 6); do
+  for _ in $(seq 1 13); do
     # shellcheck disable=SC2086
     ns "$n" ping $v -c1 -W2 "$addr" >/dev/null 2>&1 && return 0
     sleep 1
@@ -151,6 +153,14 @@ check "a -> b fails after down" bash -c "! ip netns exec $A ping -c1 -W2 $B4"
 if [ $FAIL -gt 0 ]; then
   log "FAILED ($FAIL failures) — logs in $WORK (kept)"
   tail -n 20 "$WORK"/*.log || true
+  if command -v wg >/dev/null; then
+    for side in "$A:a" "$B:b"; do
+      echo "--- wg show in ${side##*:}:"; ns "${side%%:*}" wg show 2>&1 || true
+    done
+  fi
+  for side in "$A:a" "$B:b"; do
+    echo "--- links in ${side##*:}:"; ns "${side%%:*}" ip -s link show 2>&1 | head -20 || true
+  done
   trap - EXIT
   for n in $SRV $A $B $NET; do ip netns del "$n" 2>/dev/null || true; done
   [ -n "${SRV_PID:-}" ] && kill "$SRV_PID" 2>/dev/null

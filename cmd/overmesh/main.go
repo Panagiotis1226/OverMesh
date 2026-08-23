@@ -170,13 +170,20 @@ func cmdStatus(args []string) error {
 		fmt.Println("  no peers yet")
 		return nil
 	}
-	fmt.Printf("\n  %-20s %-16s %-28s %s\n", "PEER", "IPV4", "IPV6", "STATE")
+	fmt.Printf("\n  %-20s %-16s %-28s %-8s %s\n", "PEER", "IPV4", "IPV6", "STATE", "PATH")
 	for _, p := range st.Peers {
 		state := "offline"
 		if p.Online {
 			state = "online"
 		}
-		fmt.Printf("  %-20s %-16s %-28s %s\n", p.Hostname, p.IPv4, p.IPv6, state)
+		path := p.Path
+		if p.Path == "direct" && p.Endpoint != "" {
+			path = fmt.Sprintf("direct %s", p.Endpoint)
+			if p.RTTms > 0 {
+				path += fmt.Sprintf(" (%dms)", p.RTTms)
+			}
+		}
+		fmt.Printf("  %-20s %-16s %-28s %-8s %s\n", p.Hostname, p.IPv4, p.IPv6, state, path)
 	}
 	return nil
 }

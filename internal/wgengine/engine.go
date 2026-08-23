@@ -14,6 +14,8 @@ package wgengine
 import (
 	"fmt"
 	"net/netip"
+
+	"golang.zx2c4.com/wireguard/conn"
 )
 
 // MTU is conservative for Phase 1; per-path PMTU probing raises it in
@@ -28,8 +30,9 @@ type PeerConfig struct {
 }
 
 // Options configures an engine at creation. Addresses and Routes are
-// applied once (they are stable for the life of a Phase-1 session); peers
-// change with every netmap via SetPeers.
+// applied once (they are stable for the life of a session); peers change
+// with every netmap via SetPeers, and per-peer endpoints move as
+// magicsock picks better paths.
 type Options struct {
 	IfaceName  string // requested name; actual name may differ on macOS (utunN)
 	PrivateKey [32]byte
@@ -37,13 +40,20 @@ type Options struct {
 	Addresses  []netip.Prefix // this node's overlay addresses (/32, /128)
 	Routes     []netip.Prefix // overlay prefixes routed into the interface
 	Mode       string         // "auto", "kernel", "userspace"
-	Logf       func(format string, args ...any)
+	// Bind, when set, replaces the default UDP socket of the userspace
+	// engine — magicsock injects its shared STUN/WG socket here. Ignored
+	// by the kernel engine.
+	Bind conn.Bind
+	Logf func(format string, args ...any)
 }
 
 // Engine is a live WireGuard interface.
 type Engine interface {
 	// SetPeers replaces the peer set (full replacement, idempotent).
 	SetPeers([]PeerConfig) error
+	// SetPeerEndpoint moves one peer's endpoint without touching the
+	// rest of its config (magicsock path changes).
+	SetPeerEndpoint(publicKey [32]byte, endpoint netip.AddrPort) error
 	// IfName is the actual interface name (e.g. "overmesh0" or "utun4").
 	IfName() string
 	// Kind is "kernel" or "userspace".
@@ -53,6 +63,10 @@ type Engine interface {
 }
 
 // New creates the engine for opts per the platform and requested mode.
+// "auto" is the userspace engine: it is the only one that can share its
+// socket with magicsock for NAT traversal. The kernel engine remains an
+// explicit opt-in for LAN/server setups with static reachability
+// (revisited in Phase 5's exit-node throughput work).
 func New(opts Options) (Engine, error) {
 	if opts.Logf == nil {
 		opts.Logf = func(string, ...any) {}
@@ -61,12 +75,10 @@ func New(opts Options) (Engine, error) {
 		opts.IfaceName = "overmesh0"
 	}
 	switch opts.Mode {
-	case "", "auto":
-		return newAuto(opts)
+	case "", "auto", "userspace":
+		return newUserspace(opts)
 	case "kernel":
 		return newKernel(opts)
-	case "userspace":
-		return newUserspace(opts)
 	default:
 		return nil, fmt.Errorf("wgengine: unknown mode %q", opts.Mode)
 	}

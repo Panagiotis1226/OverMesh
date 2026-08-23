@@ -11,6 +11,10 @@
 # Usage: sudo test/integration/phase1.sh [kernel|userspace|auto]
 set -euo pipefail
 
+# Self-contained lab: never route its traffic through host proxies.
+export NO_PROXY='*' no_proxy='*'
+unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy || true
+
 MODE="${1:-auto}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$REPO_ROOT/bin"

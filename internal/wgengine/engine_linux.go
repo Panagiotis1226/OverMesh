@@ -14,16 +14,6 @@ import (
 // tunName on Linux is used as requested.
 func tunName(requested string) string { return requested }
 
-// newAuto prefers the kernel module and falls back to wireguard-go.
-func newAuto(opts Options) (Engine, error) {
-	e, kerr := newKernel(opts)
-	if kerr == nil {
-		return e, nil
-	}
-	opts.Logf("wgengine: kernel WireGuard unavailable (%v), falling back to userspace", kerr)
-	return newUserspace(opts)
-}
-
 // kernelEngine drives a kernel wireguard link via netlink + wgctrl.
 type kernelEngine struct {
 	name string
@@ -88,6 +78,16 @@ func (e *kernelEngine) SetPeers(peers []PeerConfig) error {
 		cfg.Peers = append(cfg.Peers, pc)
 	}
 	return e.wg.ConfigureDevice(e.name, cfg)
+}
+
+func (e *kernelEngine) SetPeerEndpoint(publicKey [32]byte, endpoint netip.AddrPort) error {
+	return e.wg.ConfigureDevice(e.name, wgtypes.Config{
+		Peers: []wgtypes.PeerConfig{{
+			PublicKey:  wgtypes.Key(publicKey),
+			UpdateOnly: true,
+			Endpoint:   net.UDPAddrFromAddrPort(endpoint),
+		}},
+	})
 }
 
 func (e *kernelEngine) IfName() string { return e.name }

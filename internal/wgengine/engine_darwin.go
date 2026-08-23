@@ -17,9 +17,6 @@ func tunName(requested string) string {
 	return "utun"
 }
 
-// newAuto on macOS is always userspace: there is no kernel WireGuard.
-func newAuto(opts Options) (Engine, error) { return newUserspace(opts) }
-
 func newKernel(opts Options) (Engine, error) {
 	return nil, fmt.Errorf("wgengine: no kernel WireGuard on macOS; use userspace")
 }

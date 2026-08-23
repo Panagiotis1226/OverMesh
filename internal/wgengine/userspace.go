@@ -4,6 +4,7 @@ package wgengine
 
 import (
 	"fmt"
+	"net/netip"
 
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
@@ -33,7 +34,11 @@ func newUserspace(opts Options) (Engine, error) {
 			opts.Logf("wg[%s]: "+format, append([]any{name}, args...)...)
 		},
 	}
-	dev := device.NewDevice(tundev, conn.NewDefaultBind(), logger)
+	bind := opts.Bind
+	if bind == nil {
+		bind = conn.NewDefaultBind()
+	}
+	dev := device.NewDevice(tundev, bind, logger)
 
 	if err := dev.IpcSet(uapiDeviceConfig(opts.PrivateKey, opts.ListenPort)); err != nil {
 		dev.Close()
@@ -53,6 +58,10 @@ func newUserspace(opts Options) (Engine, error) {
 
 func (e *userspaceEngine) SetPeers(peers []PeerConfig) error {
 	return e.dev.IpcSet(uapiPeersConfig(peers))
+}
+
+func (e *userspaceEngine) SetPeerEndpoint(publicKey [32]byte, endpoint netip.AddrPort) error {
+	return e.dev.IpcSet(uapiPeerEndpoint(publicKey, endpoint))
 }
 
 func (e *userspaceEngine) IfName() string { return e.name }

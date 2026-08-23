@@ -12,6 +12,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/panagiotis1226/overmesh/internal/daemon"
@@ -19,12 +20,23 @@ import (
 )
 
 func main() {
+	// Catch the classic mixup before flag parsing: CLI subcommands typed
+	// at the daemon binary.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "up", "down", "status", "ping", "drop":
+			fmt.Fprintf(os.Stderr, "overmeshd is the background daemon; did you mean:  overmesh %s\n", strings.Join(os.Args[1:], " "))
+			os.Exit(2)
+		}
+	}
+
 	var (
 		stateDir    = flag.String("state-dir", defaultStateDir(), "directory for keys and session state")
 		socket      = flag.String("socket", daemon.DefaultSocketPath(), "control socket path for the overmesh CLI")
 		listenPort  = flag.Uint("port", 41642, "WireGuard UDP listen port")
 		iface       = flag.String("iface", "overmesh0", "interface name (macOS always gets utunN)")
-		wgMode      = flag.String("wg-mode", "auto", "WireGuard engine: auto|kernel|userspace")
+		wgMode      = flag.String("wg-mode", "auto", "WireGuard engine: auto (userspace + NAT traversal) | kernel (LAN/static only) | userspace")
+		useTLS      = flag.Bool("tls", false, "connect to the control plane over TLS")
 		showVersion = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Parse()
@@ -39,6 +51,7 @@ func main() {
 		ListenPort: uint16(*listenPort),
 		IfaceName:  *iface,
 		WGMode:     *wgMode,
+		UseTLS:     *useTLS,
 	})
 	if err != nil {
 		log.Fatal(err)

@@ -103,3 +103,22 @@ jobs:
         run: sudo apt-get install -y --no-install-recommends wireguard-tools
       - name: Two nodes register, stream netmaps, ping over the overlay
         run: sudo env "PATH=$PATH" test/integration/phase1.sh ${{ matrix.wg_mode }}
+
+  holepunch:
+    name: Phase 2 NAT traversal (${{ matrix.nat_a }} / ${{ matrix.nat_b }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { nat_a: cone, nat_b: cone }           # punches direct + roaming
+          - { nat_a: cone, nat_b: symmetric }      # clean no-path (relay = Phase 3)
+          - { nat_a: symmetric, nat_b: symmetric } # clean no-path (relay = Phase 3)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build binaries
+        run: make build
+      - name: Holepunch across simulated NATs
+        run: sudo env "PATH=$PATH" test/integration/phase2.sh ${{ matrix.nat_a }} ${{ matrix.nat_b }}

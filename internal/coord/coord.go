@@ -23,22 +23,28 @@ import (
 type Coordinator struct {
 	st *store.Store
 
-	mu     sync.Mutex
-	ipams  map[int64]*ipam.Allocator          // networkID -> allocator
-	subs   map[int64]chan *overmeshv1.NetMap  // nodeID -> push channel
-	online map[int64]bool                     // nodeID -> stream open
-	seq    map[int64]uint64                   // networkID -> netmap sequence
+	// StunServers ("host:port") advertised to every node via netmap, the
+	// embedded one first. Set once at startup before serving.
+	StunServers []string
+
+	mu      sync.Mutex
+	ipams   map[int64]*ipam.Allocator                 // networkID -> allocator
+	subs    map[int64]chan *overmeshv1.NetMap         // nodeID -> push channel
+	sigSubs map[int64]chan *overmeshv1.SignalEnvelope // nodeID -> signal inbox
+	online  map[int64]bool                            // nodeID -> stream open
+	seq     map[int64]uint64                          // networkID -> netmap sequence
 }
 
 // New loads existing state (nodes' addresses into IPAM) and returns a
 // ready Coordinator.
 func New(st *store.Store) (*Coordinator, error) {
 	c := &Coordinator{
-		st:     st,
-		ipams:  make(map[int64]*ipam.Allocator),
-		subs:   make(map[int64]chan *overmeshv1.NetMap),
-		online: make(map[int64]bool),
-		seq:    make(map[int64]uint64),
+		st:      st,
+		ipams:   make(map[int64]*ipam.Allocator),
+		subs:    make(map[int64]chan *overmeshv1.NetMap),
+		sigSubs: make(map[int64]chan *overmeshv1.SignalEnvelope),
+		online:  make(map[int64]bool),
+		seq:     make(map[int64]uint64),
 	}
 	return c, nil
 }
@@ -250,6 +256,10 @@ func (c *Coordinator) DeleteNode(id int64) error {
 		close(ch)
 		delete(c.subs, id)
 	}
+	if ch, ok := c.sigSubs[id]; ok {
+		close(ch)
+		delete(c.sigSubs, id)
+	}
 	delete(c.online, id)
 	if nw, err := c.st.NetworkByID(n.NetworkID); err == nil {
 		if alloc, err := c.allocatorFor(nw); err == nil {
@@ -306,7 +316,8 @@ func (c *Coordinator) buildNetMapLocked(n store.Node) (*overmeshv1.NetMap, error
 		return nil, err
 	}
 	nm := &overmeshv1.NetMap{
-		Seq: c.seq[n.NetworkID],
+		Seq:         c.seq[n.NetworkID],
+		StunServers: c.StunServers,
 		Self: &overmeshv1.Node{
 			NodeId:     uint64(n.ID),
 			Hostname:   n.Hostname,

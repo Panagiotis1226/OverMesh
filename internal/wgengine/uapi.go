@@ -19,6 +19,15 @@ func uapiDeviceConfig(privateKey [32]byte, listenPort uint16) string {
 	return b.String()
 }
 
+// uapiPeerEndpoint renders an endpoint move for one existing peer.
+func uapiPeerEndpoint(publicKey [32]byte, endpoint fmt.Stringer) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "public_key=%s\n", hex.EncodeToString(publicKey[:]))
+	b.WriteString("update_only=true\n")
+	fmt.Fprintf(&b, "endpoint=%s\n", endpoint)
+	return b.String()
+}
+
 // uapiPeersConfig renders a full peer replacement.
 func uapiPeersConfig(peers []PeerConfig) string {
 	var b strings.Builder

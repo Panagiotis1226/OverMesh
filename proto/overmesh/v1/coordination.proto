@@ -28,6 +28,40 @@ service CoordinationService {
   // ("ip:port"). Phase 1 sends locally-discovered addresses; Phase 2 adds
   // STUN-discovered ones.
   rpc UpdateEndpoints(UpdateEndpointsRequest) returns (UpdateEndpointsResponse);
+
+  // SignalStream is the rendezvous channel for NAT traversal: nodes hold
+  // it open and the server routes envelopes (ICE offers/answers and
+  // trickled candidates) between them. The first envelope a client sends
+  // authenticates the stream via machine_key and needs no destination.
+  rpc SignalStream(stream SignalEnvelope) returns (stream SignalEnvelope);
+}
+
+// SignalKind labels what a SignalEnvelope carries.
+enum SignalKind {
+  SIGNAL_KIND_UNSPECIFIED = 0;
+  // Stream hello: authenticates the client; payload empty.
+  SIGNAL_KIND_HELLO = 1;
+  // ICE offer from the initiating side; payload = "ufrag\npwd".
+  SIGNAL_KIND_OFFER = 2;
+  // ICE answer from the accepting side; payload = "ufrag\npwd".
+  SIGNAL_KIND_ANSWER = 3;
+  // One trickled ICE candidate; payload = candidate string.
+  SIGNAL_KIND_CANDIDATE = 4;
+}
+
+message SignalEnvelope {
+  // Client -> server only, on the first envelope (HELLO): who is talking.
+  bytes machine_key = 1;
+  // Destination node (client -> server).
+  uint64 to_node_id = 2;
+  // Origin node; stamped by the server (server -> client), ignored from
+  // clients.
+  uint64 from_node_id = 3;
+  SignalKind kind = 4;
+  string payload = 5;
+  // Sender's ICE session epoch: lets receivers drop stale envelopes from
+  // a restarted negotiation.
+  uint64 session = 6;
 }
 
 // RegisterNodeRequest identifies a device to the control plane.
@@ -86,6 +120,9 @@ message NetMap {
   uint64 seq = 1;
   Node self = 2;
   repeated Peer peers = 3;
+  // STUN servers ("host:port") for endpoint discovery, the control
+  // plane's own embedded one first.
+  repeated string stun_servers = 4;
 }
 
 // Node is the receiving node's own record.

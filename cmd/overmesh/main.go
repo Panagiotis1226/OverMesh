@@ -11,12 +11,15 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/panagiotis1226/overmesh/internal/daemon"
+	"github.com/panagiotis1226/overmesh/internal/overdrop"
 	"github.com/panagiotis1226/overmesh/internal/version"
 )
 
@@ -31,6 +34,8 @@ Usage:
   overmesh status                                 show self + peers
   overmesh ping <peer-hostname|ip> [-c N]         ping a peer over the overlay
   overmesh exit-node <peer-hostname|off>          switch exit node on the fly
+  overmesh drop <file> <peer-hostname>            send a file (resumable)
+  overmesh inbox                                  list received files
   overmesh version
 
 Routers and exit nodes must be approved in the web UI before they carry
@@ -61,7 +66,9 @@ func main() {
 	case "exit-node":
 		err = cmdExitNode(args)
 	case "drop":
-		err = fmt.Errorf("overmesh drop arrives in Phase 6 (see docs/PLAN.md)")
+		err = cmdDrop(args)
+	case "inbox":
+		err = cmdInbox(args)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", cmd, usage)
 		os.Exit(2)
@@ -270,6 +277,106 @@ func cmdStatus(args []string) error {
 		fmt.Printf("  %-20s %-16s %-28s %-8s %s\n", p.Hostname, p.IPv4, p.IPv6, state, path)
 	}
 	return nil
+}
+
+func cmdDrop(args []string) error {
+	fs := flag.NewFlagSet("drop", flag.ExitOnError)
+	socket := fs.String("socket", daemon.DefaultSocketPath(), "daemon control socket")
+	port := fs.Uint("port", overdrop.DefaultPort, "receiver port on the peer")
+	_ = fs.Parse(args)
+	if fs.NArg() < 2 {
+		return fmt.Errorf("usage: overmesh drop <file> <peer-hostname>")
+	}
+	file, target := fs.Arg(0), fs.Arg(1)
+
+	st, err := getStatus(*socket)
+	if err != nil {
+		return err
+	}
+	var dstIP string
+	for _, p := range st.Peers {
+		if strings.EqualFold(p.Hostname, target) {
+			dstIP = p.IPv4
+			if !p.Online {
+				return fmt.Errorf("%s is offline", p.Hostname)
+			}
+			break
+		}
+	}
+	if dstIP == "" {
+		return fmt.Errorf("no peer named %q (see overmesh status)", target)
+	}
+	dst, err := netip.ParseAddr(dstIP)
+	if err != nil {
+		return err
+	}
+
+	start := time.Now()
+	var lastLine int
+	err = overdrop.Send(dst, uint16(*port), file, func(sent, total int64) {
+		pct := 0
+		if total > 0 {
+			pct = int(sent * 100 / total)
+		}
+		line := fmt.Sprintf("\r%s -> %s  %d%%  (%s / %s)", filepath.Base(file), target,
+			pct, humanBytes(sent), humanBytes(total))
+		fmt.Print(line)
+		if pad := lastLine - len(line); pad > 0 {
+			fmt.Print(strings.Repeat(" ", pad))
+		}
+		lastLine = len(line)
+	})
+	fmt.Println()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("sent in %s\n", time.Since(start).Round(time.Millisecond))
+	return nil
+}
+
+func cmdInbox(args []string) error {
+	fs := flag.NewFlagSet("inbox", flag.ExitOnError)
+	socket := fs.String("socket", daemon.DefaultSocketPath(), "daemon control socket")
+	_ = fs.Parse(args)
+
+	var resp struct {
+		Dir   string               `json:"dir"`
+		Files []overdrop.InboxFile `json:"files"`
+	}
+	if err := call(*socket, "GET", "/inbox", nil, &resp); err != nil {
+		return err
+	}
+	if resp.Dir == "" {
+		fmt.Println("overdrop receiving is disabled on this daemon (-overdrop=false)")
+		return nil
+	}
+	fmt.Printf("inbox: %s\n", resp.Dir)
+	if len(resp.Files) == 0 {
+		fmt.Println("  empty — files sent to this device with 'overmesh drop' land here")
+		return nil
+	}
+	fmt.Printf("  %-20s %-34s %10s  %s\n", "FROM", "FILE", "SIZE", "STATE")
+	for _, f := range resp.Files {
+		state := "complete"
+		if f.Partial {
+			state = "partial (sender can resume)"
+		}
+		fmt.Printf("  %-20s %-34s %10s  %s\n", f.From, f.Name, humanBytes(f.Size), state)
+	}
+	return nil
+}
+
+func humanBytes(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f GiB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KiB", float64(n)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
 }
 
 func cmdPing(args []string) error {

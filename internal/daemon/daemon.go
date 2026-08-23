@@ -32,6 +32,7 @@ import (
 	"github.com/panagiotis1226/overmesh/internal/filter"
 	"github.com/panagiotis1226/overmesh/internal/magicsock"
 	"github.com/panagiotis1226/overmesh/internal/meshdns"
+	"github.com/panagiotis1226/overmesh/internal/overdrop"
 	"github.com/panagiotis1226/overmesh/internal/relay"
 	"github.com/panagiotis1226/overmesh/internal/router"
 	"github.com/panagiotis1226/overmesh/internal/version"
@@ -46,6 +47,25 @@ type Options struct {
 	WGMode     string // auto|kernel|userspace
 	MTU        int    // 0 = wgengine.DefaultMTU
 	UseTLS     bool   // TLS to the control plane
+	// OverDrop file receiving. Zero values in Overdrop* mean enabled,
+	// StateDir/overdrop, DefaultPort.
+	OverdropOff  bool
+	OverdropDir  string
+	OverdropPort uint16
+}
+
+func (o Options) overdropDir() string {
+	if o.OverdropDir != "" {
+		return o.OverdropDir
+	}
+	return o.StateDir + "/overdrop"
+}
+
+func (o Options) overdropPort() uint16 {
+	if o.OverdropPort != 0 {
+		return o.OverdropPort
+	}
+	return overdrop.DefaultPort
 }
 
 // PeerStatus is one peer as shown by `overmesh status`.
@@ -84,9 +104,11 @@ type Status struct {
 	ApprovedRoutes   []string `json:"approved_routes,omitempty"`
 	// ExitNode is the requested exit peer; ExitNodeActive reports
 	// whether its routes are currently installed.
-	ExitNode       string       `json:"exit_node,omitempty"`
-	ExitNodeActive bool         `json:"exit_node_active,omitempty"`
-	Peers          []PeerStatus `json:"peers,omitempty"`
+	ExitNode       string `json:"exit_node,omitempty"`
+	ExitNodeActive bool   `json:"exit_node_active,omitempty"`
+	// OverdropDir is where received files land ("" = receiving off).
+	OverdropDir string       `json:"overdrop_dir,omitempty"`
+	Peers       []PeerStatus `json:"peers,omitempty"`
 }
 
 // peerInfo is what the daemon remembers about a peer across netmaps and
@@ -136,6 +158,9 @@ type Daemon struct {
 	routeSync  *router.RouteSync  // OS routes for peers' subnet routes
 	exitNode   string             // desired exit peer hostname ("" = none)
 	exitPeerID uint64             // peer currently serving as our exit (0 = none)
+
+	// Phase 6: OverDrop receiver.
+	dropSrv *overdrop.Server
 }
 
 // New loads state and returns a Daemon (not yet connected).
@@ -348,10 +373,15 @@ func (d *Daemon) session(ctx context.Context, conn *grpc.ClientConn, client over
 		ds := d.dnsSrv
 		osDone := d.dnsOSDone
 		adv, ec, rs := d.adv, d.exitCli, d.routeSync
+		drop := d.dropSrv
 		d.relayCli, d.dnsSrv, d.dnsOSDone = nil, nil, false
 		d.adv, d.exitCli, d.routeSync = nil, nil, nil
+		d.dropSrv = nil
 		d.exitPeerID = 0
 		d.mu.Unlock()
+		if drop != nil {
+			drop.Close()
+		}
 		if rc != nil {
 			rc.Close()
 		}
@@ -500,6 +530,7 @@ func (d *Daemon) applyNetMap(nm *overmeshv1.NetMap, eng wgengine.Engine, cm *mag
 	d.applyFilter(nm, eng)
 	d.applyDNS(nm, eng)
 	d.applyRoutes(nm, eng)
+	d.applyOverdrop()
 	if cm != nil {
 		cm.SetStunServers(stunHosts)
 		cm.SetPeers(online)
@@ -709,6 +740,57 @@ func (d *Daemon) SetExitNode(name string) error {
 		}
 	}
 	return nil
+}
+
+// applyOverdrop starts the file receiver once the overlay is up. The
+// sender of every transfer is identified by its overlay source address,
+// which WireGuard's cryptokey routing binds to exactly one peer.
+func (d *Daemon) applyOverdrop() {
+	if d.opts.OverdropOff {
+		return
+	}
+	d.mu.Lock()
+	if d.dropSrv != nil || !d.selfV4.IsValid() {
+		d.mu.Unlock()
+		return
+	}
+	srv := overdrop.NewServer(d.opts.overdropDir(), d.peerNameByAddr, log.Printf)
+	d.dropSrv = srv
+	selfV4 := d.selfV4
+	d.mu.Unlock()
+
+	if err := srv.Start(selfV4, d.opts.overdropPort()); err != nil {
+		log.Printf("daemon: overdrop: %v", err)
+		d.mu.Lock()
+		d.dropSrv = nil
+		d.mu.Unlock()
+		return
+	}
+	d.mu.Lock()
+	d.status.OverdropDir = d.opts.overdropDir()
+	d.mu.Unlock()
+}
+
+// peerNameByAddr resolves an overlay address to the peer's hostname
+// ("" = not a known peer; the transfer is rejected).
+func (d *Daemon) peerNameByAddr(addr netip.Addr) string {
+	s := addr.String()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, pi := range d.peers {
+		if pi.ipv4 == s || pi.ipv6 == s {
+			return pi.hostname
+		}
+	}
+	return ""
+}
+
+// InboxDir returns the OverDrop inbox path ("" when receiving is off).
+func (d *Daemon) InboxDir() string {
+	if d.opts.OverdropOff {
+		return ""
+	}
+	return d.opts.overdropDir()
 }
 
 // buildPeerConfigsLocked renders engine peer configs from current state,

@@ -1,0 +1,21 @@
+[Unit]
+Description=OverMesh control plane (coordination server, web UI, STUN, relay)
+Documentation=https://github.com/panagiotis1226/overmesh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# First start: set an admin password with -admin-password (or read the
+# generated one from the journal), then remove the flag.
+ExecStart=/usr/bin/overmesh-server -state-dir /var/lib/overmesh-server
+Restart=on-failure
+RestartSec=3
+DynamicUser=yes
+StateDirectory=overmesh-server
+# The server binds 8080 (HTTP), 41641 (gRPC), 3478/udp (STUN) by
+# default — all unprivileged. For TLS on :443 add
+# AmbientCapabilities=CAP_NET_BIND_SERVICE and -http :443 -tls-cert ...
+
+[Install]
+WantedBy=multi-user.target

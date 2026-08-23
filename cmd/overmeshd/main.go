@@ -33,10 +33,13 @@ func main() {
 	var (
 		stateDir    = flag.String("state-dir", defaultStateDir(), "directory for keys and session state")
 		socket      = flag.String("socket", daemon.DefaultSocketPath(), "control socket path for the overmesh CLI")
+		socketGroup = flag.String("socket-group", "", "make the control socket group-accessible (e.g. 'admin' on macOS for the menu bar app)")
 		listenPort  = flag.Uint("port", 41642, "WireGuard UDP listen port")
 		iface       = flag.String("iface", "overmesh0", "interface name (macOS always gets utunN)")
 		wgMode      = flag.String("wg-mode", "auto", "WireGuard engine: auto (userspace + NAT traversal) | kernel (fastest; LAN/static-endpoint servers, e.g. dedicated exit nodes)")
 		mtu         = flag.Int("mtu", 0, "tunnel MTU (default 1280 = safe anywhere; 1420 on a normal 1500 underlay for more throughput)")
+		overdropOn  = flag.Bool("overdrop", true, "receive files sent with 'overmesh drop'")
+		overdropDir = flag.String("overdrop-dir", "", "OverDrop inbox directory (default <state-dir>/overdrop)")
 		useTLS      = flag.Bool("tls", false, "connect to the control plane over TLS")
 		showVersion = flag.Bool("version", false, "print version and exit")
 	)
@@ -48,12 +51,14 @@ func main() {
 	}
 
 	d, err := daemon.New(daemon.Options{
-		StateDir:   *stateDir,
-		ListenPort: uint16(*listenPort),
-		IfaceName:  *iface,
-		WGMode:     *wgMode,
-		MTU:        *mtu,
-		UseTLS:     *useTLS,
+		StateDir:    *stateDir,
+		ListenPort:  uint16(*listenPort),
+		IfaceName:   *iface,
+		WGMode:      *wgMode,
+		MTU:         *mtu,
+		UseTLS:      *useTLS,
+		OverdropOff: !*overdropOn,
+		OverdropDir: *overdropDir,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -73,7 +78,7 @@ func main() {
 		os.Exit(0)
 	}()
 
-	if err := d.ServeControl(*socket); err != nil {
+	if err := d.ServeControl(*socket, *socketGroup); err != nil {
 		log.Fatal(err)
 	}
 }

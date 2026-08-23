@@ -40,6 +40,9 @@ func uapiPeersConfig(peers []PeerConfig) string {
 		}
 		if p.Endpoint.IsValid() {
 			fmt.Fprintf(&b, "endpoint=%s\n", p.Endpoint)
+		} else if p.RelayEndpoint != "" {
+			// Parsed by the Bind's ParseEndpoint (magicsock relay form).
+			fmt.Fprintf(&b, "endpoint=%s\n", p.RelayEndpoint)
 		}
 		fmt.Fprintf(&b, "persistent_keepalive_interval=%d\n", keepaliveSeconds)
 	}

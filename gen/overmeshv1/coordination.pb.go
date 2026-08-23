@@ -509,7 +509,12 @@ type NetMap struct {
 	Peers []*Peer `protobuf:"bytes,3,rep,name=peers,proto3" json:"peers,omitempty"`
 	// STUN servers ("host:port") for endpoint discovery, the control
 	// plane's own embedded one first.
-	StunServers   []string `protobuf:"bytes,4,rep,name=stun_servers,json=stunServers,proto3" json:"stun_servers,omitempty"`
+	StunServers []string `protobuf:"bytes,4,rep,name=stun_servers,json=stunServers,proto3" json:"stun_servers,omitempty"`
+	// Relay URLs (e.g. "http://:8080/relay" — an empty host means "use the
+	// control-plane host", like stun_servers). First entry is the home
+	// relay. Traffic falls back to the relay whenever no direct path
+	// exists; payloads stay WireGuard-encrypted end to end.
+	Relays        []string `protobuf:"bytes,5,rep,name=relays,proto3" json:"relays,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -568,6 +573,13 @@ func (x *NetMap) GetPeers() []*Peer {
 func (x *NetMap) GetStunServers() []string {
 	if x != nil {
 		return x.StunServers
+	}
+	return nil
+}
+
+func (x *NetMap) GetRelays() []string {
+	if x != nil {
+		return x.Relays
 	}
 	return nil
 }
@@ -767,12 +779,13 @@ const file_overmesh_v1_coordination_proto_rawDesc = "" +
 	"\x13StreamNetMapRequest\x12\x1f\n" +
 	"\vmachine_key\x18\x01 \x01(\fR\n" +
 	"machineKey\x12\x19\n" +
-	"\bhave_seq\x18\x02 \x01(\x04R\ahaveSeq\"\x8d\x01\n" +
+	"\bhave_seq\x18\x02 \x01(\x04R\ahaveSeq\"\xa5\x01\n" +
 	"\x06NetMap\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12%\n" +
 	"\x04self\x18\x02 \x01(\v2\x11.overmesh.v1.NodeR\x04self\x12'\n" +
 	"\x05peers\x18\x03 \x03(\v2\x11.overmesh.v1.PeerR\x05peers\x12!\n" +
-	"\fstun_servers\x18\x04 \x03(\tR\vstunServers\"{\n" +
+	"\fstun_servers\x18\x04 \x03(\tR\vstunServers\x12\x16\n" +
+	"\x06relays\x18\x05 \x03(\tR\x06relays\"{\n" +
 	"\x04Node\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x1d\n" +

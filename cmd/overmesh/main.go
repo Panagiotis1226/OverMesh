@@ -166,6 +166,9 @@ func cmdStatus(args []string) error {
 	fmt.Printf("%s @ %s  [%s]\n", st.Hostname, st.Network, st.Conn)
 	fmt.Printf("  self    %-16s %s\n", st.IPv4, st.IPv6)
 	fmt.Printf("  iface   %s (%s engine)   server %s\n", st.Iface, st.Engine, st.Server)
+	if st.Relay != "" {
+		fmt.Printf("  relay   %s\n", st.Relay)
+	}
 	if len(st.Peers) == 0 {
 		fmt.Println("  no peers yet")
 		return nil

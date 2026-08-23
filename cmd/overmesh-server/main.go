@@ -31,6 +31,7 @@ import (
 	"github.com/panagiotis1226/overmesh/internal/adminapi"
 	"github.com/panagiotis1226/overmesh/internal/coord"
 	"github.com/panagiotis1226/overmesh/internal/ipam"
+	"github.com/panagiotis1226/overmesh/internal/relay"
 	"github.com/panagiotis1226/overmesh/internal/store"
 	"github.com/panagiotis1226/overmesh/internal/stunserver"
 	"github.com/panagiotis1226/overmesh/internal/version"
@@ -44,6 +45,9 @@ func main() {
 	flag.StringVar(&cfg.stunAddr, "stun", ":3478", "UDP listen address for the embedded STUN server (empty disables)")
 	flag.StringVar(&cfg.stunAdvertise, "stun-advertise", "", "address nodes should use for STUN (default: control-plane host + stun port)")
 	flag.StringVar(&cfg.extraStun, "stun-extra", "", "comma-separated additional STUN servers to advertise")
+	flag.BoolVar(&cfg.relayEnabled, "relay", true, "serve the embedded OMR relay on the HTTP listener at /relay")
+	flag.StringVar(&cfg.relayAdvertise, "relay-advertise", "", "relay URL nodes should use (default: control-plane host + the HTTP port)")
+	flag.StringVar(&cfg.relayExtra, "relay-extra", "", "comma-separated additional relay URLs to advertise")
 	flag.StringVar(&cfg.stateDir, "state-dir", "overmesh-server-data", "directory for the database")
 	flag.StringVar(&cfg.adminPw, "admin-password", "", "set/rotate the admin password (otherwise kept, or generated and logged on first run)")
 	flag.StringVar(&cfg.tlsCert, "tls-cert", "", "TLS certificate file; with -tls-key, gRPC and HTTP serve TLS")
@@ -64,6 +68,9 @@ type config struct {
 	httpAddr, grpcAddr      string
 	stunAddr, stunAdvertise string
 	extraStun               string
+	relayEnabled            bool
+	relayAdvertise          string
+	relayExtra              string
 	stateDir, adminPw       string
 	tlsCert, tlsKey         string
 }
@@ -155,6 +162,31 @@ func run(cfg config) error {
 		fmt.Fprintf(w, "ok overmesh-server %s\n", version.Long())
 	})
 	adminapi.New(st, c, nw).Register(mux)
+
+	// Embedded OMR relay: shares this listener (and its TLS), so every
+	// self-hosted control plane is a relay too.
+	if cfg.relayEnabled {
+		mux.Handle(relay.UpgradePath, relay.NewServer(log.Printf).Handler())
+		advertise := cfg.relayAdvertise
+		if advertise == "" {
+			scheme := "http"
+			if tlsConf != nil {
+				scheme = "https"
+			}
+			_, port, _ := net.SplitHostPort(httpAddr)
+			advertise = fmt.Sprintf("%s://:%s%s", scheme, port, relay.UpgradePath)
+		}
+		c.Relays = append(c.Relays, advertise)
+		log.Printf("overmesh-server: relay at %s (advertised as %q)", relay.UpgradePath, advertise)
+	}
+	if cfg.relayExtra != "" {
+		for _, r := range strings.Split(cfg.relayExtra, ",") {
+			if r = strings.TrimSpace(r); r != "" {
+				c.Relays = append(c.Relays, r)
+			}
+		}
+	}
+
 	mux.Handle("/", webui.Handler())
 
 	httpSrv := &http.Server{

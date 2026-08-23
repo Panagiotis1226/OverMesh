@@ -3,6 +3,7 @@ package magicsock
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"net/netip"
 	"sync"
 	"time"
@@ -173,10 +174,14 @@ func (m *ConnMgr) runInitiator(peerID, session uint64) {
 		if ok || !retry {
 			return
 		}
+		// Retry forever while the peer exists: with the relay carrying
+		// traffic (Phase 3) a failed punch is not fatal, but conditions
+		// change — NAT timeouts, roaming, network flaps — so keep
+		// probing for a direct path. Jitter avoids lockstep glare.
 		m.logf("magicsock: negotiation with node %d failed, retrying in %v", peerID, backoff)
-		time.Sleep(backoff)
-		if backoff *= 2; backoff > 30*time.Second {
-			backoff = 30 * time.Second
+		time.Sleep(backoff + time.Duration(rand.Int64N(int64(backoff/4+1))))
+		if backoff *= 2; backoff > 60*time.Second {
+			backoff = 60 * time.Second
 		}
 		m.mu.Lock()
 		pc, exists := m.peers[peerID]

@@ -26,7 +26,11 @@ const MTU = 1280
 type PeerConfig struct {
 	PublicKey  [32]byte
 	AllowedIPs []netip.Prefix
-	Endpoint   netip.AddrPort // zero = no known endpoint yet
+	Endpoint   netip.AddrPort // zero = no known UDP endpoint
+	// RelayEndpoint is a non-UDP endpoint string the Bind can parse
+	// (magicsock's "relay:<hex>"); used when Endpoint is zero. Userspace
+	// engine only — the kernel cannot reach the relay.
+	RelayEndpoint string
 }
 
 // Options configures an engine at creation. Addresses and Routes are

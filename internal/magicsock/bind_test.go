@@ -21,7 +21,7 @@ func TestDemux(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer b.Close()
-	if len(fns) != 1 || port == 0 {
+	if len(fns) != 2 || port == 0 { // UDP receiver + relay receiver
 		t.Fatalf("unexpected open result: %d fns, port %d", len(fns), port)
 	}
 

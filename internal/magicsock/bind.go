@@ -8,9 +8,11 @@
 package magicsock
 
 import (
+	"encoding/hex"
 	"errors"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,12 +34,49 @@ type Bind struct {
 	muxway *muxConn
 	ready  chan struct{}
 	wgPkts atomic.Uint64 // non-STUN packets surfaced to WireGuard (stats)
+
+	// Relay path: Send routes relay endpoints through sendToRelay, and
+	// packets arriving from the relay flow to WireGuard via relayInbox
+	// (drained by the second ReceiveFunc).
+	// openDone is created per Open and closed by Close: it unblocks the
+	// relay ReceiveFunc when the device shuts the bind down.
+	openDone chan struct{}
+
+	relayMu     sync.Mutex
+	sendToRelay func(dst [32]byte, payload []byte) error
+	relayInbox  chan relayPacket
+}
+
+type relayPacket struct {
+	src  [32]byte
+	data []byte
 }
 
 // NewBind returns an unopened Bind; wireguard-go calls Open when the
 // device comes up.
 func NewBind(logf func(string, ...any)) *Bind {
-	return &Bind{logf: logf, ready: make(chan struct{})}
+	return &Bind{
+		logf:       logf,
+		ready:      make(chan struct{}),
+		relayInbox: make(chan relayPacket, 256),
+	}
+}
+
+// SetRelaySender installs (or clears, with nil) the function used to
+// forward packets for relay endpoints.
+func (b *Bind) SetRelaySender(send func(dst [32]byte, payload []byte) error) {
+	b.relayMu.Lock()
+	b.sendToRelay = send
+	b.relayMu.Unlock()
+}
+
+// DeliverRelayPacket feeds a payload received from the relay into
+// WireGuard, attributed to the peer with node key src.
+func (b *Bind) DeliverRelayPacket(src [32]byte, data []byte) {
+	select {
+	case b.relayInbox <- relayPacket{src: src, data: data}:
+	default: // WG stalled: drop, peers retransmit
+	}
 }
 
 // Ready is closed once Open has run and Mux is usable. wireguard-go
@@ -88,6 +127,7 @@ func (b *Bind) Open(port uint16) ([]conn.ReceiveFunc, uint16, error) {
 	// checks routed to conns no candidate reads.
 	b.muxway = newMuxConn(pc, primaryLocalAddr(actual))
 	b.mux = ice.NewUniversalUDPMuxDefault(ice.UniversalUDPMuxParams{UDPConn: b.muxway})
+	b.openDone = make(chan struct{})
 
 	// wireguard-go's BindUpdate always calls Close before (re)opening, so
 	// Close re-arms the channel and Open closes it unconditionally.
@@ -96,7 +136,28 @@ func (b *Bind) Open(port uint16) ([]conn.ReceiveFunc, uint16, error) {
 	default:
 		close(b.ready)
 	}
-	return []conn.ReceiveFunc{b.receive}, actual, nil
+	return []conn.ReceiveFunc{b.receive, b.receiveRelay}, actual, nil
+}
+
+// receiveRelay surfaces relayed WireGuard packets — wireguard-go runs one
+// receive goroutine per ReceiveFunc, so this simply blocks on the inbox
+// until a packet arrives or the bind closes.
+func (b *Bind) receiveRelay(packets [][]byte, sizes []int, eps []conn.Endpoint) (int, error) {
+	b.mu.Lock()
+	closedC := b.openDone
+	b.mu.Unlock()
+	if closedC == nil {
+		return 0, net.ErrClosed
+	}
+	select {
+	case pkt := <-b.relayInbox:
+		n := copy(packets[0], pkt.data)
+		sizes[0] = n
+		eps[0] = relayEndpoint(pkt.src)
+		return 1, nil
+	case <-closedC:
+		return 0, net.ErrClosed
+	}
 }
 
 // receive reads one datagram and routes it: STUN -> ICE mux (and keep
@@ -124,8 +185,24 @@ func (b *Bind) receive(packets [][]byte, sizes []int, eps []conn.Endpoint) (int,
 	}
 }
 
-// Send implements conn.Bind.
+// Send implements conn.Bind: UDP endpoints go out the socket, relay
+// endpoints go out as relay frames.
 func (b *Bind) Send(bufs [][]byte, ep conn.Endpoint) error {
+	if re, ok := ep.(relayEndpoint); ok {
+		b.relayMu.Lock()
+		send := b.sendToRelay
+		b.relayMu.Unlock()
+		if send == nil {
+			return nil // relay not connected: drop, WG retransmits
+		}
+		for _, buf := range bufs {
+			if err := send([32]byte(re), buf); err != nil {
+				return nil // transient relay outage: same policy
+			}
+		}
+		return nil
+	}
+
 	b.mu.Lock()
 	pc := b.pc
 	b.mu.Unlock()
@@ -163,6 +240,10 @@ func (b *Bind) Close() error {
 		err = b.pc.Close()
 		b.pc = nil
 	}
+	if b.openDone != nil {
+		close(b.openDone)
+		b.openDone = nil
+	}
 	select {
 	case <-b.ready: // was closed (open state): re-arm
 		b.ready = make(chan struct{})
@@ -178,14 +259,44 @@ func (b *Bind) SetMark(uint32) error { return nil }
 // BatchSize implements conn.Bind.
 func (b *Bind) BatchSize() int { return 1 }
 
-// ParseEndpoint implements conn.Bind.
+// ParseEndpoint implements conn.Bind. Two forms: "ip:port" for UDP and
+// "relay:<64-hex-nodekey>" for relayed peers.
 func (b *Bind) ParseEndpoint(s string) (conn.Endpoint, error) {
+	if rest, ok := strings.CutPrefix(s, relayEndpointPrefix); ok {
+		raw, err := hex.DecodeString(rest)
+		if err != nil || len(raw) != 32 {
+			return nil, errors.New("magicsock: bad relay endpoint " + s)
+		}
+		var re relayEndpoint
+		copy(re[:], raw)
+		return re, nil
+	}
 	ap, err := netip.ParseAddrPort(s)
 	if err != nil {
 		return nil, err
 	}
 	return endpointWithPort(ap), nil
 }
+
+// RelayEndpointString renders the WG endpoint string for a peer reached
+// via the relay.
+func RelayEndpointString(nodeKey [32]byte) string {
+	return relayEndpointPrefix + hex.EncodeToString(nodeKey[:])
+}
+
+const relayEndpointPrefix = "relay:"
+
+// relayEndpoint is a conn.Endpoint addressing a peer by node key through
+// the relay. DstToBytes feeds WireGuard's mac2 cookie hasher, so it must
+// be stable per peer.
+type relayEndpoint [32]byte
+
+func (e relayEndpoint) ClearSrc()           {}
+func (e relayEndpoint) SrcToString() string { return "" }
+func (e relayEndpoint) DstToString() string { return RelayEndpointString(e) }
+func (e relayEndpoint) DstToBytes() []byte  { return append([]byte("relay"), e[:]...) }
+func (e relayEndpoint) DstIP() netip.Addr   { return netip.Addr{} }
+func (e relayEndpoint) SrcIP() netip.Addr   { return netip.Addr{} }
 
 // --- endpoint ---
 

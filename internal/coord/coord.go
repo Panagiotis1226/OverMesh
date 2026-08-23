@@ -26,6 +26,9 @@ type Coordinator struct {
 	// StunServers ("host:port") advertised to every node via netmap, the
 	// embedded one first. Set once at startup before serving.
 	StunServers []string
+	// Relays (URLs) advertised via netmap, home relay first. Set once at
+	// startup before serving.
+	Relays []string
 
 	mu      sync.Mutex
 	ipams   map[int64]*ipam.Allocator                 // networkID -> allocator
@@ -318,6 +321,7 @@ func (c *Coordinator) buildNetMapLocked(n store.Node) (*overmeshv1.NetMap, error
 	nm := &overmeshv1.NetMap{
 		Seq:         c.seq[n.NetworkID],
 		StunServers: c.StunServers,
+		Relays:      c.Relays,
 		Self: &overmeshv1.Node{
 			NodeId:     uint64(n.ID),
 			Hostname:   n.Hostname,

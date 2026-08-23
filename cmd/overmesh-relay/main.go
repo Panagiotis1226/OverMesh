@@ -1,26 +1,62 @@
-// Command overmesh-relay is the standalone OMR relay (DERP-style).
-// The relay protocol lands in Phase 3; the same code will also run
-// embedded inside overmesh-server.
+// Command overmesh-relay is a standalone OMR relay: the same DERP-style
+// forwarder that overmesh-server embeds, deployable independently for
+// multi-region setups. Relays are stateless — run as many as you like and
+// advertise them via the control plane's -relay-extra flag.
 package main
 
 import (
+	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
-	"os"
+	"net/http"
+	"time"
 
+	"github.com/panagiotis1226/overmesh/internal/relay"
 	"github.com/panagiotis1226/overmesh/internal/version"
 )
 
 func main() {
-	showVersion := flag.Bool("version", false, "print version and exit")
+	var (
+		listen      = flag.String("listen", ":3443", "HTTP listen address (relay served at /relay)")
+		tlsCert     = flag.String("tls-cert", "", "TLS certificate file (with -tls-key, serve TLS)")
+		tlsKey      = flag.String("tls-key", "", "TLS key file")
+		showVersion = flag.Bool("version", false, "print version and exit")
+	)
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Println("overmesh-relay", version.Long())
 		return
 	}
-	log.Print("overmesh-relay ", version.Long())
-	log.Print("the OMR relay protocol lands in Phase 3; this binary exists so packaging and CI cover it from day one")
-	os.Exit(2)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "ok overmesh-relay %s\n", version.Long())
+	})
+	mux.Handle(relay.UpgradePath, relay.NewServer(log.Printf).Handler())
+
+	srv := &http.Server{
+		Addr:              *listen,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	var err error
+	if *tlsCert != "" || *tlsKey != "" {
+		cert, cerr := tls.LoadX509KeyPair(*tlsCert, *tlsKey)
+		if cerr != nil {
+			log.Fatalf("loading TLS keypair: %v", cerr)
+		}
+		srv.TLSConfig = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+		log.Printf("overmesh-relay %s: listening on https://%s%s", version.Long(), *listen, relay.UpgradePath)
+		err = srv.ListenAndServeTLS("", "")
+	} else {
+		log.Printf("overmesh-relay %s: listening on http://%s%s (WireGuard payloads stay end-to-end encrypted; TLS still recommended on the internet)", version.Long(), *listen, relay.UpgradePath)
+		err = srv.ListenAndServe()
+	}
+	if !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
 }

@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/user"
+	"path/filepath"
 	"runtime"
 	"strconv"
 
@@ -15,8 +17,16 @@ import (
 )
 
 // DefaultSocketPath is where the daemon listens and the CLI connects,
-// overridable on both via -socket.
+// overridable on both via -socket. (Go supports AF_UNIX sockets on
+// Windows 10 1803+.)
 func DefaultSocketPath() string {
+	if runtime.GOOS == "windows" {
+		pd := os.Getenv("ProgramData")
+		if pd == "" {
+			pd = `C:\ProgramData`
+		}
+		return pd + `\OverMesh\overmesh.sock`
+	}
 	if runtime.GOOS == "darwin" {
 		return "/var/run/overmesh.sock"
 	}
@@ -42,31 +52,43 @@ func (d *Daemon) ServeControl(socketPath, groupName string) error {
 		_ = os.Remove(socketPath)
 	}
 
+	// The socket's parent directory may not exist yet (fresh install).
+	if dir := filepath.Dir(socketPath); dir != "." {
+		_ = os.MkdirAll(dir, 0o700)
+	}
 	lis, err := net.Listen("unix", socketPath)
 	if err != nil {
 		return err
 	}
-	mode := os.FileMode(0o600)
-	if groupName != "" {
-		g, err := user.LookupGroup(groupName)
-		if err != nil {
-			lis.Close()
-			return fmt.Errorf("-socket-group %q: %w", groupName, err)
+	if runtime.GOOS == "windows" {
+		// chmod/chown semantics don't carry over; ProgramData ACLs
+		// already restrict writes to administrators.
+		if groupName != "" {
+			log.Print("overmeshd: -socket-group is not applicable on Windows (ignored)")
 		}
-		gid, err := strconv.Atoi(g.Gid)
-		if err != nil {
-			lis.Close()
-			return fmt.Errorf("-socket-group %q: bad gid %q", groupName, g.Gid)
+	} else {
+		mode := os.FileMode(0o600)
+		if groupName != "" {
+			g, err := user.LookupGroup(groupName)
+			if err != nil {
+				lis.Close()
+				return fmt.Errorf("-socket-group %q: %w", groupName, err)
+			}
+			gid, err := strconv.Atoi(g.Gid)
+			if err != nil {
+				lis.Close()
+				return fmt.Errorf("-socket-group %q: bad gid %q", groupName, g.Gid)
+			}
+			if err := os.Chown(socketPath, -1, gid); err != nil {
+				lis.Close()
+				return err
+			}
+			mode = 0o660
 		}
-		if err := os.Chown(socketPath, -1, gid); err != nil {
+		if err := os.Chmod(socketPath, mode); err != nil {
 			lis.Close()
 			return err
 		}
-		mode = 0o660
-	}
-	if err := os.Chmod(socketPath, mode); err != nil {
-		lis.Close()
-		return err
 	}
 
 	mux := http.NewServeMux()

@@ -12,6 +12,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -41,12 +42,19 @@ func main() {
 		overdropOn  = flag.Bool("overdrop", true, "receive files sent with 'overmesh drop'")
 		overdropDir = flag.String("overdrop-dir", "", "OverDrop inbox directory (default <state-dir>/overdrop)")
 		useTLS      = flag.Bool("tls", false, "connect to the control plane over TLS")
+		serviceCmd  = flag.String("service", "", "Windows service control: install|uninstall|start|stop")
 		showVersion = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Println("overmeshd", version.Long())
+		return
+	}
+	if *serviceCmd != "" {
+		if err := serviceCommand(*serviceCmd); err != nil {
+			log.Fatal(err)
+		}
 		return
 	}
 
@@ -65,25 +73,43 @@ func main() {
 	}
 
 	log.Printf("overmeshd %s: control socket %s, state %s", version.Long(), *socket, *stateDir)
-	d.MaybeAutoUp()
 
-	// Tear the tunnel down cleanly on SIGINT/SIGTERM.
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sig
+	start := func() {
+		d.MaybeAutoUp()
+		if err := d.ServeControl(*socket, *socketGroup); err != nil {
+			log.Fatal(err)
+		}
+	}
+	shutdown := func() {
 		log.Print("overmeshd: shutting down")
 		_ = d.Down()
 		os.Remove(*socket)
 		os.Exit(0)
-	}()
-
-	if err := d.ServeControl(*socket, *socketGroup); err != nil {
-		log.Fatal(err)
 	}
+
+	// Launched by the Windows service manager? Run under its control.
+	if runAsServiceIfNeeded(start, shutdown) {
+		return
+	}
+
+	// Console run: tear the tunnel down cleanly on SIGINT/SIGTERM.
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sig
+		shutdown()
+	}()
+	start()
 }
 
 func defaultStateDir() string {
+	if runtime.GOOS == "windows" {
+		pd := os.Getenv("ProgramData")
+		if pd == "" {
+			pd = `C:\ProgramData`
+		}
+		return pd + `\OverMesh`
+	}
 	if os.Geteuid() == 0 {
 		return "/var/lib/overmesh"
 	}

@@ -2,7 +2,7 @@
 
 A fully self-hostable **WireGuard-based overlay mesh VPN** — control plane included — in the Tailscale / NetBird class.
 
-> Status: **Phase 7 complete** — user accounts, roles, key rotation, and an audit log (local accounts; no SSO required). Log in with username + password; admins create accounts in the web UI, and an optional toggle opens a self-signup page. **Members see and manage only their own devices** — devices enroll under the account whose setup key they used — while ACLs, route approvals, and user management stay admin-only. `overmesh rotate-key` swaps a device's WireGuard key live (peers re-handshake in seconds, connectivity proven in CI), and every security-relevant action (logins, user/key/device changes, rule and route edits, rotations) lands in a read-only audit log in the web UI. Phase 6 delivered OverDrop file transfer + packaging. See [`docs/PLAN.md`](docs/PLAN.md).
+> Status: **Phase 8 complete** — the **Windows client**. `overmeshd` runs as a Windows service on the userspace WireGuard data plane (Wintun adapter, the same driver Tailscale ships), configured through the IP Helper API: overlay addresses, routes, MTU, per-adapter DNS with the mesh suffix, and the global suffix search list for bare hostnames (restored on down). Install is one elevated `install.ps1` from the CI artifact (binaries + wintun.dll + service + firewall rule); join with the same `overmesh up` as everywhere else — status, ping, OverDrop, key rotation all work. CI now runs the full unit suite natively on a Windows runner plus a control-plane smoke. Phase 7 delivered local user accounts, roles, rotation, and the audit log. See [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Quickstart (LAN)
 
@@ -68,7 +68,7 @@ Go (server, daemon, CLI, relay) · wireguard-go + wgctrl · pion/stun + pion/ice
 | 5 | Exit nodes, subnet routers, web-UI route approval, MTU tuning, bench harness |
 | 6 | OverDrop file transfer + packaging (deb/rpm/docker/brew) + macOS menu bar scaffold |
 | 7 | User accounts (login/signup) + roles, node key rotation, audit log |
-| 8 | Windows client (WireGuardNT) |
+| 8 | Windows client (service + Wintun + installer script) |
 | 9 | iOS + Android (gomobile + netstack) |
 | 10 | Hardening, metrics, HA, security review → 1.0 |
 

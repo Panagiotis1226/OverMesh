@@ -109,7 +109,7 @@ func Open(path string) (*Store, error) {
 	// modernc/sqlite serializes writes; a single connection avoids
 	// SQLITE_BUSY entirely at Phase-1 scale.
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema); err != nil {
+	if _, err := db.Exec(schema + aclSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("applying schema: %w", err)
 	}

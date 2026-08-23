@@ -18,6 +18,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/panagiotis1226/overmesh/internal/coord"
+	"github.com/panagiotis1226/overmesh/internal/filter"
 	"github.com/panagiotis1226/overmesh/internal/store"
 	"github.com/panagiotis1226/overmesh/internal/version"
 )
@@ -86,6 +87,82 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/setupkeys", a.auth(a.handleSetupKeys))
 	mux.HandleFunc("POST /api/setupkeys", a.auth(a.handleCreateSetupKey))
 	mux.HandleFunc("DELETE /api/setupkeys/{id}", a.auth(a.handleRevokeSetupKey))
+	mux.HandleFunc("GET /api/acl", a.auth(a.handleGetACL))
+	mux.HandleFunc("PUT /api/acl", a.auth(a.handleSetACL))
+	mux.HandleFunc("POST /api/acl/check", a.auth(a.handleCheckACL))
+}
+
+// --- access rules (the web UI is the editor; no config files) ---
+
+func (a *API) handleGetACL(w http.ResponseWriter, r *http.Request) {
+	rules, err := a.st.ACL(a.nw.ID)
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{"rules": rules})
+}
+
+func (a *API) handleSetACL(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Rules []store.ACLRule `json:"rules"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "bad request body")
+		return
+	}
+	for _, rule := range req.Rules {
+		for _, spec := range rule.Ports {
+			if _, err := coord.ParsePortSpec(spec); err != nil {
+				httpError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
+		if len(rule.Ports) > 0 && rule.Protocol != "tcp" && rule.Protocol != "udp" {
+			httpError(w, http.StatusBadRequest, "ports require protocol tcp or udp")
+			return
+		}
+	}
+	if err := a.st.SetACL(a.nw.ID, req.Rules); err != nil {
+		httpError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// Push recompiled filters to every connected node immediately.
+	a.c.ACLChanged(a.nw.ID)
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+// handleCheckACL answers the dry-run tester using the exact filter the
+// destination node would receive.
+func (a *API) handleCheckACL(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SrcID    int64  `json:"src_id"`
+		DstID    int64  `json:"dst_id"`
+		Protocol string `json:"protocol"` // tcp|udp|icmp
+		Port     uint16 `json:"port"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "bad request body")
+		return
+	}
+	src, err := a.c.NodeForCheck(req.SrcID)
+	if err != nil {
+		httpError(w, http.StatusNotFound, "unknown source device")
+		return
+	}
+	dst, err := a.c.NodeForCheck(req.DstID)
+	if err != nil {
+		httpError(w, http.StatusNotFound, "unknown destination device")
+		return
+	}
+	rules, enabled, err := a.c.CompileFilterForNode(dst)
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	f := filter.FromProto(rules, enabled)
+	allowed := f.Check(src.IPv4, req.Protocol, req.Port)
+	writeJSON(w, map[string]any{"allowed": allowed})
 }
 
 // --- auth ---
@@ -173,11 +250,16 @@ func (a *API) gcSessionsLocked() {
 // --- handlers ---
 
 func (a *API) handleStatus(w http.ResponseWriter, r *http.Request) {
+	domain := ""
+	if a.c.DNSBase != "" {
+		domain = a.nw.Name + "." + a.c.DNSBase
+	}
 	writeJSON(w, map[string]any{
-		"version":   version.Long(),
-		"network":   a.nw.Name,
-		"v4_prefix": a.nw.V4Prefix.String(),
-		"v6_prefix": a.nw.V6Prefix.String(),
+		"version":    version.Long(),
+		"network":    a.nw.Name,
+		"v4_prefix":  a.nw.V4Prefix.String(),
+		"v6_prefix":  a.nw.V6Prefix.String(),
+		"dns_domain": domain,
 	})
 }
 

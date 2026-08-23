@@ -9,20 +9,24 @@ import (
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
+
+	"github.com/panagiotis1226/overmesh/internal/filter"
 )
 
 // userspaceEngine runs wireguard-go in-process on a TUN device.
 type userspaceEngine struct {
 	dev    *device.Device
+	ftun   *filterTUN
 	name   string
 	closed bool
 }
 
 func newUserspace(opts Options) (Engine, error) {
-	tundev, err := tun.CreateTUN(tunName(opts.IfaceName), MTU)
+	rawTun, err := tun.CreateTUN(tunName(opts.IfaceName), MTU)
 	if err != nil {
 		return nil, fmt.Errorf("wgengine: create tun: %w", err)
 	}
+	tundev := newFilterTUN(rawTun)
 	name, err := tundev.Name()
 	if err != nil {
 		name = opts.IfaceName
@@ -53,8 +57,10 @@ func newUserspace(opts Options) (Engine, error) {
 		return nil, fmt.Errorf("wgengine: interface config: %w", err)
 	}
 	opts.Logf("wgengine: userspace WireGuard up on %s (port %d)", name, opts.ListenPort)
-	return &userspaceEngine{dev: dev, name: name}, nil
+	return &userspaceEngine{dev: dev, ftun: tundev, name: name}, nil
 }
+
+func (e *userspaceEngine) SetFilter(f *filter.Filter) { e.ftun.setFilter(f) }
 
 func (e *userspaceEngine) SetPeers(peers []PeerConfig) error {
 	return e.dev.IpcSet(uapiPeersConfig(peers))

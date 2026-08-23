@@ -169,6 +169,9 @@ func cmdStatus(args []string) error {
 	if st.Relay != "" {
 		fmt.Printf("  relay   %s\n", st.Relay)
 	}
+	if st.Domain != "" {
+		fmt.Printf("  dns     %s (peers reachable by bare hostname)\n", st.Domain)
+	}
 	if len(st.Peers) == 0 {
 		fmt.Println("  no peers yet")
 		return nil

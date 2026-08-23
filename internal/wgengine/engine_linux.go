@@ -9,6 +9,8 @@ import (
 	"github.com/vishvananda/netlink"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/panagiotis1226/overmesh/internal/filter"
 )
 
 // tunName on Linux is used as requested.
@@ -89,6 +91,11 @@ func (e *kernelEngine) SetPeerEndpoint(publicKey [32]byte, endpoint netip.AddrPo
 		}},
 	})
 }
+
+// SetFilter is unenforceable on the kernel data plane (packets never
+// transit this process); the daemon warns when rules exist in kernel
+// mode.
+func (e *kernelEngine) SetFilter(*filter.Filter) {}
 
 func (e *kernelEngine) IfName() string { return e.name }
 func (e *kernelEngine) Kind() string   { return "kernel" }

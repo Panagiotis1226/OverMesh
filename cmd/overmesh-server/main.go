@@ -48,6 +48,7 @@ func main() {
 	flag.BoolVar(&cfg.relayEnabled, "relay", true, "serve the embedded OMR relay on the HTTP listener at /relay")
 	flag.StringVar(&cfg.relayAdvertise, "relay-advertise", "", "relay URL nodes should use (default: control-plane host + the HTTP port)")
 	flag.StringVar(&cfg.relayExtra, "relay-extra", "", "comma-separated additional relay URLs to advertise")
+	flag.StringVar(&cfg.dnsBase, "dns-domain", "mesh", "overlay DNS suffix: devices resolve as <name>.<network>.<suffix> and as bare names via search domains (empty disables)")
 	flag.StringVar(&cfg.stateDir, "state-dir", "overmesh-server-data", "directory for the database")
 	flag.StringVar(&cfg.adminPw, "admin-password", "", "set/rotate the admin password (otherwise kept, or generated and logged on first run)")
 	flag.StringVar(&cfg.tlsCert, "tls-cert", "", "TLS certificate file; with -tls-key, gRPC and HTTP serve TLS")
@@ -71,6 +72,7 @@ type config struct {
 	relayEnabled            bool
 	relayAdvertise          string
 	relayExtra              string
+	dnsBase                 string
 	stateDir, adminPw       string
 	tlsCert, tlsKey         string
 }
@@ -97,6 +99,7 @@ func run(cfg config) error {
 	if err != nil {
 		return err
 	}
+	c.DNSBase = cfg.dnsBase
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -143,7 +146,7 @@ func run(cfg config) error {
 	if err != nil {
 		return fmt.Errorf("grpc listen: %w", err)
 	}
-	// Clients ping every ~10s to detect dead paths after roaming; the
+	// Clients ping every ~15s to detect dead paths after roaming; the
 	// default enforcement (5 min) would GOAWAY them for it.
 	grpcOpts := []grpc.ServerOption{
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{

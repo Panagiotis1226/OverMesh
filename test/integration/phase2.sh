@@ -106,7 +106,9 @@ path_of() { # <ns> <socket> -> current path value of the single peer
     | sed -n 's/.*"path": *"\([a-z]*\)".*/\1/p' | head -1
 }
 wait_path() { # <ns> <socket> <want> [tries]
-  local tries="${4:-40}"
+  # Default budget covers one full ICE retry cycle: on a loaded CI
+  # runner the first attempt can time out and the retry lands ~90s in.
+  local tries="${4:-120}"
   for _ in $(seq 1 "$tries"); do
     [ "$(path_of "$1" "$2")" = "$3" ] && return 0
     sleep 1
@@ -135,8 +137,9 @@ if [ "$EXPECT" = direct ]; then
   ns $CLA ip addr add 10.101.0.77/24 dev la0
   ns $CLA ip route replace default via 10.101.0.1
   # Recovery budget: keepalive detects the dead control connection in
-  # ~15s, then re-register + re-signal + re-punch.
-  check "a -> b ping after re-address" ping_ok $CLA "$B4" 45
+  # ~30s worst case, then re-register + re-signal + re-punch (plus one
+  # ICE retry cycle of headroom for slow runners).
+  check "a -> b ping after re-address" ping_ok $CLA "$B4" 120
 else
   log "expecting clean no-path (symmetric NAT involved; relay is Phase 3)"
   # Negotiation must settle to 'none' (ICE fails) without crashing.

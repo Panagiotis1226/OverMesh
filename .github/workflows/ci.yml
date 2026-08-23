@@ -141,3 +141,18 @@ jobs:
         run: make build
       - name: Relay bootstrap, direct upgrade, guaranteed fallback
         run: sudo env "PATH=$PATH" test/integration/phase3.sh ${{ matrix.nat_a }} ${{ matrix.nat_b }}
+
+  dns-acl:
+    name: Phase 4 overlay DNS + access rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build binaries
+        run: |
+          make build
+          go build -o bin/om-lab-udpecho ./test/lab/udpecho
+      - name: Bare-hostname DNS + live ACL enforcement
+        run: sudo env "PATH=$PATH" test/integration/phase4.sh

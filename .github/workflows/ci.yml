@@ -36,10 +36,12 @@ jobs:
     strategy:
       matrix:
         include:
-          - { goos: linux,  goarch: amd64 }
-          - { goos: linux,  goarch: arm64 }
-          - { goos: darwin, goarch: amd64 }
-          - { goos: darwin, goarch: arm64 }
+          - { goos: linux,   goarch: amd64 }
+          - { goos: linux,   goarch: arm64 }
+          - { goos: darwin,  goarch: amd64 }
+          - { goos: darwin,  goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,12 +56,17 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           VERSION=$(git describe --tags --always)
+          EXT=""
+          [ "$GOOS" = windows ] && EXT=".exe"
           mkdir -p dist
           for b in overmesh-server overmeshd overmesh overmesh-relay; do
             go build -trimpath \
               -ldflags "-s -w -X github.com/panagiotis1226/overmesh/internal/version.Version=$VERSION" \
-              -o "dist/$b" "./cmd/$b"
+              -o "dist/$b$EXT" "./cmd/$b"
           done
+          if [ "$GOOS" = windows ]; then
+            cp clients/windows/install.ps1 clients/windows/uninstall.ps1 clients/windows/README.md dist/
+          fi
       - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
@@ -233,6 +240,63 @@ jobs:
         run: make build
       - name: RBAC, ownership, signup toggle, key rotation, audit
         run: sudo env "PATH=$PATH" test/integration/phase7.sh
+
+  windows:
+    name: Phase 8 Windows (unit suite + smoke)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: go vet (native Windows)
+        run: go vet ./...
+      - name: go test (native Windows)
+        run: go test ./...
+      - name: Build binaries
+        run: |
+          go build -o overmesh-server.exe ./cmd/overmesh-server
+          go build -o overmeshd.exe ./cmd/overmeshd
+          go build -o overmesh.exe ./cmd/overmesh
+      - name: Control-plane smoke (server + API on Windows)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $srv = Start-Process -PassThru -NoNewWindow .\overmesh-server.exe `
+            -ArgumentList '-admin-password','win-smoke-pw','-state-dir','srvstate'
+          $ok = $false
+          foreach ($i in 1..50) {
+            try { Invoke-RestMethod http://127.0.0.1:8080/healthz | Out-Null; $ok = $true; break }
+            catch { Start-Sleep -Milliseconds 300 }
+          }
+          if (-not $ok) { throw 'server never became healthy' }
+          $s = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+          Invoke-RestMethod -WebSession $s -Method Post http://127.0.0.1:8080/api/login `
+            -Body '{"username":"admin","password":"win-smoke-pw"}' | Out-Null
+          $key = (Invoke-RestMethod -WebSession $s -Method Post http://127.0.0.1:8080/api/setupkeys `
+            -Body '{"reusable":true}').key
+          if (-not $key.StartsWith('sk-')) { throw "bad setup key: $key" }
+          "SETUP_KEY=$key" | Out-File -Append $env:GITHUB_ENV
+          Write-Host "server + API OK, key minted"
+      - name: Tunnel smoke (Wintun; best-effort on hosted runners)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest https://www.wintun.net/builds/wintun-0.14.1.zip -OutFile wintun.zip
+          Expand-Archive wintun.zip -DestinationPath wt
+          Copy-Item wt\wintun\bin\amd64\wintun.dll .
+          $d = Start-Process -PassThru -NoNewWindow .\overmeshd.exe `
+            -ArgumentList '-state-dir','dstate','-socket','.\om.sock' `
+            -RedirectStandardError daemon.log
+          Start-Sleep -Seconds 3
+          .\overmesh.exe up -socket .\om.sock -server 127.0.0.1:41641 -key $env:SETUP_KEY
+          Start-Sleep -Seconds 5
+          $st = .\overmesh.exe status -socket .\om.sock -json | ConvertFrom-Json
+          Get-Content daemon.log
+          if (-not $st.running) { throw 'daemon not running' }
+          if (-not $st.iface) { throw 'no tunnel interface' }
+          Write-Host "TUNNEL OK: iface $($st.iface) ipv4 $($st.ipv4)"
 
   bench:
     name: Throughput bench (informational)

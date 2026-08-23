@@ -514,7 +514,17 @@ type NetMap struct {
 	// control-plane host", like stun_servers). First entry is the home
 	// relay. Traffic falls back to the relay whenever no direct path
 	// exists; payloads stay WireGuard-encrypted end to end.
-	Relays        []string `protobuf:"bytes,5,rep,name=relays,proto3" json:"relays,omitempty"`
+	Relays []string `protobuf:"bytes,5,rep,name=relays,proto3" json:"relays,omitempty"`
+	// Overlay DNS configuration.
+	Dns *DNSConfig `protobuf:"bytes,6,opt,name=dns,proto3" json:"dns,omitempty"`
+	// Inbound packet filter for THIS node, compiled from the network's
+	// access rules: first matching rule wins; when filter_enabled and no
+	// rule matches, the packet is dropped. Enforced on the receiving node
+	// (the WireGuard source address is cryptographically bound to the
+	// peer, so filtering by overlay source is sound).
+	Filter []*FilterRule `protobuf:"bytes,7,rep,name=filter,proto3" json:"filter,omitempty"`
+	// When false the network has no access rules: allow everything.
+	FilterEnabled bool `protobuf:"varint,8,opt,name=filter_enabled,json=filterEnabled,proto3" json:"filter_enabled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -584,6 +594,200 @@ func (x *NetMap) GetRelays() []string {
 	return nil
 }
 
+func (x *NetMap) GetDns() *DNSConfig {
+	if x != nil {
+		return x.Dns
+	}
+	return nil
+}
+
+func (x *NetMap) GetFilter() []*FilterRule {
+	if x != nil {
+		return x.Filter
+	}
+	return nil
+}
+
+func (x *NetMap) GetFilterEnabled() bool {
+	if x != nil {
+		return x.FilterEnabled
+	}
+	return false
+}
+
+// DNSConfig tells the daemon how to serve and register overlay names.
+type DNSConfig struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The network's DNS zone, e.g. "default.mesh". The daemon answers
+	// <hostname>.<domain> for every node in the netmap and installs the
+	// domain as an OS search domain so bare hostnames ("ps-iphone")
+	// resolve too.
+	Domain        string `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DNSConfig) Reset() {
+	*x = DNSConfig{}
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DNSConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DNSConfig) ProtoMessage() {}
+
+func (x *DNSConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DNSConfig.ProtoReflect.Descriptor instead.
+func (*DNSConfig) Descriptor() ([]byte, []int) {
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *DNSConfig) GetDomain() string {
+	if x != nil {
+		return x.Domain
+	}
+	return ""
+}
+
+// FilterRule matches inbound overlay packets on the receiving node.
+type FilterRule struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Allow bool                   `protobuf:"varint,1,opt,name=allow,proto3" json:"allow,omitempty"`
+	// Source overlay addresses (CIDR). Empty = any source.
+	SrcCidrs []string `protobuf:"bytes,2,rep,name=src_cidrs,json=srcCidrs,proto3" json:"src_cidrs,omitempty"`
+	// "" = any protocol; otherwise "tcp", "udp", "icmp".
+	Protocol string `protobuf:"bytes,3,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	// Destination ports (tcp/udp only). Empty = all ports.
+	DstPorts      []*PortRange `protobuf:"bytes,4,rep,name=dst_ports,json=dstPorts,proto3" json:"dst_ports,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FilterRule) Reset() {
+	*x = FilterRule{}
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FilterRule) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FilterRule) ProtoMessage() {}
+
+func (x *FilterRule) ProtoReflect() protoreflect.Message {
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FilterRule.ProtoReflect.Descriptor instead.
+func (*FilterRule) Descriptor() ([]byte, []int) {
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *FilterRule) GetAllow() bool {
+	if x != nil {
+		return x.Allow
+	}
+	return false
+}
+
+func (x *FilterRule) GetSrcCidrs() []string {
+	if x != nil {
+		return x.SrcCidrs
+	}
+	return nil
+}
+
+func (x *FilterRule) GetProtocol() string {
+	if x != nil {
+		return x.Protocol
+	}
+	return ""
+}
+
+func (x *FilterRule) GetDstPorts() []*PortRange {
+	if x != nil {
+		return x.DstPorts
+	}
+	return nil
+}
+
+type PortRange struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	First         uint32                 `protobuf:"varint,1,opt,name=first,proto3" json:"first,omitempty"`
+	Last          uint32                 `protobuf:"varint,2,opt,name=last,proto3" json:"last,omitempty"` // inclusive; single port when last == first
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PortRange) Reset() {
+	*x = PortRange{}
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PortRange) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PortRange) ProtoMessage() {}
+
+func (x *PortRange) ProtoReflect() protoreflect.Message {
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PortRange.ProtoReflect.Descriptor instead.
+func (*PortRange) Descriptor() ([]byte, []int) {
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *PortRange) GetFirst() uint32 {
+	if x != nil {
+		return x.First
+	}
+	return 0
+}
+
+func (x *PortRange) GetLast() uint32 {
+	if x != nil {
+		return x.Last
+	}
+	return 0
+}
+
 // Node is the receiving node's own record.
 type Node struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -597,7 +801,7 @@ type Node struct {
 
 func (x *Node) Reset() {
 	*x = Node{}
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[7]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -609,7 +813,7 @@ func (x *Node) String() string {
 func (*Node) ProtoMessage() {}
 
 func (x *Node) ProtoReflect() protoreflect.Message {
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[7]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -622,7 +826,7 @@ func (x *Node) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Node.ProtoReflect.Descriptor instead.
 func (*Node) Descriptor() ([]byte, []int) {
-	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{7}
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Node) GetNodeId() uint64 {
@@ -671,7 +875,7 @@ type Peer struct {
 
 func (x *Peer) Reset() {
 	*x = Peer{}
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[8]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -683,7 +887,7 @@ func (x *Peer) String() string {
 func (*Peer) ProtoMessage() {}
 
 func (x *Peer) ProtoReflect() protoreflect.Message {
-	mi := &file_overmesh_v1_coordination_proto_msgTypes[8]
+	mi := &file_overmesh_v1_coordination_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -696,7 +900,7 @@ func (x *Peer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Peer.ProtoReflect.Descriptor instead.
 func (*Peer) Descriptor() ([]byte, []int) {
-	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{8}
+	return file_overmesh_v1_coordination_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Peer) GetNodeId() uint64 {
@@ -779,13 +983,27 @@ const file_overmesh_v1_coordination_proto_rawDesc = "" +
 	"\x13StreamNetMapRequest\x12\x1f\n" +
 	"\vmachine_key\x18\x01 \x01(\fR\n" +
 	"machineKey\x12\x19\n" +
-	"\bhave_seq\x18\x02 \x01(\x04R\ahaveSeq\"\xa5\x01\n" +
+	"\bhave_seq\x18\x02 \x01(\x04R\ahaveSeq\"\xa7\x02\n" +
 	"\x06NetMap\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x04R\x03seq\x12%\n" +
 	"\x04self\x18\x02 \x01(\v2\x11.overmesh.v1.NodeR\x04self\x12'\n" +
 	"\x05peers\x18\x03 \x03(\v2\x11.overmesh.v1.PeerR\x05peers\x12!\n" +
 	"\fstun_servers\x18\x04 \x03(\tR\vstunServers\x12\x16\n" +
-	"\x06relays\x18\x05 \x03(\tR\x06relays\"{\n" +
+	"\x06relays\x18\x05 \x03(\tR\x06relays\x12(\n" +
+	"\x03dns\x18\x06 \x01(\v2\x16.overmesh.v1.DNSConfigR\x03dns\x12/\n" +
+	"\x06filter\x18\a \x03(\v2\x17.overmesh.v1.FilterRuleR\x06filter\x12%\n" +
+	"\x0efilter_enabled\x18\b \x01(\bR\rfilterEnabled\"#\n" +
+	"\tDNSConfig\x12\x16\n" +
+	"\x06domain\x18\x01 \x01(\tR\x06domain\"\x90\x01\n" +
+	"\n" +
+	"FilterRule\x12\x14\n" +
+	"\x05allow\x18\x01 \x01(\bR\x05allow\x12\x1b\n" +
+	"\tsrc_cidrs\x18\x02 \x03(\tR\bsrcCidrs\x12\x1a\n" +
+	"\bprotocol\x18\x03 \x01(\tR\bprotocol\x123\n" +
+	"\tdst_ports\x18\x04 \x03(\v2\x16.overmesh.v1.PortRangeR\bdstPorts\"5\n" +
+	"\tPortRange\x12\x14\n" +
+	"\x05first\x18\x01 \x01(\rR\x05first\x12\x12\n" +
+	"\x04last\x18\x02 \x01(\rR\x04last\"{\n" +
 	"\x04Node\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x1d\n" +
@@ -827,7 +1045,7 @@ func file_overmesh_v1_coordination_proto_rawDescGZIP() []byte {
 }
 
 var file_overmesh_v1_coordination_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_overmesh_v1_coordination_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_overmesh_v1_coordination_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_overmesh_v1_coordination_proto_goTypes = []any{
 	(SignalKind)(0),                 // 0: overmesh.v1.SignalKind
 	(*SignalEnvelope)(nil),          // 1: overmesh.v1.SignalEnvelope
@@ -837,26 +1055,32 @@ var file_overmesh_v1_coordination_proto_goTypes = []any{
 	(*UpdateEndpointsResponse)(nil), // 5: overmesh.v1.UpdateEndpointsResponse
 	(*StreamNetMapRequest)(nil),     // 6: overmesh.v1.StreamNetMapRequest
 	(*NetMap)(nil),                  // 7: overmesh.v1.NetMap
-	(*Node)(nil),                    // 8: overmesh.v1.Node
-	(*Peer)(nil),                    // 9: overmesh.v1.Peer
+	(*DNSConfig)(nil),               // 8: overmesh.v1.DNSConfig
+	(*FilterRule)(nil),              // 9: overmesh.v1.FilterRule
+	(*PortRange)(nil),               // 10: overmesh.v1.PortRange
+	(*Node)(nil),                    // 11: overmesh.v1.Node
+	(*Peer)(nil),                    // 12: overmesh.v1.Peer
 }
 var file_overmesh_v1_coordination_proto_depIdxs = []int32{
-	0, // 0: overmesh.v1.SignalEnvelope.kind:type_name -> overmesh.v1.SignalKind
-	8, // 1: overmesh.v1.NetMap.self:type_name -> overmesh.v1.Node
-	9, // 2: overmesh.v1.NetMap.peers:type_name -> overmesh.v1.Peer
-	2, // 3: overmesh.v1.CoordinationService.RegisterNode:input_type -> overmesh.v1.RegisterNodeRequest
-	6, // 4: overmesh.v1.CoordinationService.StreamNetMap:input_type -> overmesh.v1.StreamNetMapRequest
-	4, // 5: overmesh.v1.CoordinationService.UpdateEndpoints:input_type -> overmesh.v1.UpdateEndpointsRequest
-	1, // 6: overmesh.v1.CoordinationService.SignalStream:input_type -> overmesh.v1.SignalEnvelope
-	3, // 7: overmesh.v1.CoordinationService.RegisterNode:output_type -> overmesh.v1.RegisterNodeResponse
-	7, // 8: overmesh.v1.CoordinationService.StreamNetMap:output_type -> overmesh.v1.NetMap
-	5, // 9: overmesh.v1.CoordinationService.UpdateEndpoints:output_type -> overmesh.v1.UpdateEndpointsResponse
-	1, // 10: overmesh.v1.CoordinationService.SignalStream:output_type -> overmesh.v1.SignalEnvelope
-	7, // [7:11] is the sub-list for method output_type
-	3, // [3:7] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	0,  // 0: overmesh.v1.SignalEnvelope.kind:type_name -> overmesh.v1.SignalKind
+	11, // 1: overmesh.v1.NetMap.self:type_name -> overmesh.v1.Node
+	12, // 2: overmesh.v1.NetMap.peers:type_name -> overmesh.v1.Peer
+	8,  // 3: overmesh.v1.NetMap.dns:type_name -> overmesh.v1.DNSConfig
+	9,  // 4: overmesh.v1.NetMap.filter:type_name -> overmesh.v1.FilterRule
+	10, // 5: overmesh.v1.FilterRule.dst_ports:type_name -> overmesh.v1.PortRange
+	2,  // 6: overmesh.v1.CoordinationService.RegisterNode:input_type -> overmesh.v1.RegisterNodeRequest
+	6,  // 7: overmesh.v1.CoordinationService.StreamNetMap:input_type -> overmesh.v1.StreamNetMapRequest
+	4,  // 8: overmesh.v1.CoordinationService.UpdateEndpoints:input_type -> overmesh.v1.UpdateEndpointsRequest
+	1,  // 9: overmesh.v1.CoordinationService.SignalStream:input_type -> overmesh.v1.SignalEnvelope
+	3,  // 10: overmesh.v1.CoordinationService.RegisterNode:output_type -> overmesh.v1.RegisterNodeResponse
+	7,  // 11: overmesh.v1.CoordinationService.StreamNetMap:output_type -> overmesh.v1.NetMap
+	5,  // 12: overmesh.v1.CoordinationService.UpdateEndpoints:output_type -> overmesh.v1.UpdateEndpointsResponse
+	1,  // 13: overmesh.v1.CoordinationService.SignalStream:output_type -> overmesh.v1.SignalEnvelope
+	10, // [10:14] is the sub-list for method output_type
+	6,  // [6:10] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_overmesh_v1_coordination_proto_init() }
@@ -870,7 +1094,7 @@ func file_overmesh_v1_coordination_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_overmesh_v1_coordination_proto_rawDesc), len(file_overmesh_v1_coordination_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   9,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

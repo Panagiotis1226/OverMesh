@@ -25,8 +25,10 @@ import (
 
 func main() {
 	var (
-		listen = flag.String("listen", "", "server mode: comma-separated UDP addresses to listen on")
-		probe  = flag.String("probe", "", "probe mode: comma-separated UDP server addresses to probe")
+		listen    = flag.String("listen", "", "server mode: comma-separated UDP addresses to listen on")
+		probe     = flag.String("probe", "", "probe mode: comma-separated UDP server addresses to probe")
+		tcpListen = flag.String("tcp-listen", "", "TCP hello server on this address (ACL tests)")
+		tcpProbe  = flag.String("tcp-probe", "", "connect to this TCP address, expect the hello")
 	)
 	flag.Parse()
 
@@ -37,10 +39,51 @@ func main() {
 		if err := runProbe(strings.Split(*probe, ",")); err != nil {
 			log.Fatal(err)
 		}
+	case *tcpListen != "":
+		runTCPHello(*tcpListen)
+	case *tcpProbe != "":
+		if err := runTCPProbe(*tcpProbe); err != nil {
+			log.Fatal(err)
+		}
 	default:
-		fmt.Fprintln(os.Stderr, "usage: om-lab-udpecho -listen a:p,a:p | -probe a:p,a:p")
+		fmt.Fprintln(os.Stderr, "usage: om-lab-udpecho -listen a:p,a:p | -probe a:p,a:p | -tcp-listen a:p | -tcp-probe a:p")
 		os.Exit(2)
 	}
+}
+
+// runTCPHello accepts connections and greets them — a stand-in service
+// (e.g. fake ssh on :22) for access-rule tests.
+func runTCPHello(addr string) {
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("tcp hello listening on %s", l.Addr())
+	for {
+		c, err := l.Accept()
+		if err != nil {
+			return
+		}
+		_, _ = c.Write([]byte("hello\n"))
+		c.Close()
+	}
+}
+
+// runTCPProbe succeeds only when it can connect AND read the hello.
+func runTCPProbe(addr string) error {
+	c, err := net.DialTimeout("tcp", addr, 3*time.Second)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
+	buf := make([]byte, 16)
+	n, err := c.Read(buf)
+	if err != nil || n == 0 {
+		return fmt.Errorf("no hello: %v", err)
+	}
+	fmt.Println("ok")
+	return nil
 }
 
 func runServer(addrs []string) {

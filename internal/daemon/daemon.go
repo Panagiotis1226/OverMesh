@@ -29,7 +29,9 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	overmeshv1 "github.com/panagiotis1226/overmesh/gen/overmeshv1"
+	"github.com/panagiotis1226/overmesh/internal/filter"
 	"github.com/panagiotis1226/overmesh/internal/magicsock"
+	"github.com/panagiotis1226/overmesh/internal/meshdns"
 	"github.com/panagiotis1226/overmesh/internal/relay"
 	"github.com/panagiotis1226/overmesh/internal/version"
 	"github.com/panagiotis1226/overmesh/internal/wgengine"
@@ -69,6 +71,7 @@ type Status struct {
 	Engine   string       `json:"engine,omitempty"`
 	Conn     string       `json:"conn,omitempty"`  // connected | reconnecting
 	Relay    string       `json:"relay,omitempty"` // home relay URL when connected
+	Domain   string       `json:"domain,omitempty"` // overlay DNS zone, e.g. default.mesh
 	Peers    []PeerStatus `json:"peers,omitempty"`
 }
 
@@ -93,15 +96,19 @@ type Daemon struct {
 	opts  Options
 	state *State
 
-	mu       sync.Mutex
-	cancel   context.CancelFunc // stops the session goroutine
-	engine   wgengine.Engine
-	connmgr  *magicsock.ConnMgr
-	bind     *magicsock.Bind
-	relayCli *relay.Client
-	peers    map[uint64]*peerInfo
-	status   Status
-	stopped  chan struct{} // closed when the session goroutine exits
+	mu        sync.Mutex
+	cancel    context.CancelFunc // stops the session goroutine
+	engine    wgengine.Engine
+	connmgr   *magicsock.ConnMgr
+	bind      *magicsock.Bind
+	relayCli  *relay.Client
+	dnsSrv    *meshdns.Server
+	dnsOSDone bool
+	selfV4    netip.Addr
+	kernWarn  bool
+	peers     map[uint64]*peerInfo
+	status    Status
+	stopped   chan struct{} // closed when the session goroutine exits
 }
 
 // New loads state and returns a Daemon (not yet connected).
@@ -203,6 +210,7 @@ func (d *Daemon) Up(server, setupKey string) error {
 	}
 
 	d.peers = make(map[uint64]*peerInfo)
+	d.selfV4 = selfV4.Addr()
 	d.status = Status{
 		Version:  version.Long(),
 		Running:  true,
@@ -269,10 +277,18 @@ func (d *Daemon) session(ctx context.Context, conn *grpc.ClientConn, client over
 	defer func() {
 		d.mu.Lock()
 		rc := d.relayCli
-		d.relayCli = nil
+		ds := d.dnsSrv
+		osDone := d.dnsOSDone
+		d.relayCli, d.dnsSrv, d.dnsOSDone = nil, nil, false
 		d.mu.Unlock()
 		if rc != nil {
 			rc.Close()
+		}
+		if ds != nil {
+			ds.Close()
+		}
+		if osDone {
+			meshdns.DeconfigureOS(eng.IfName(), log.Printf)
 		}
 	}()
 
@@ -388,12 +404,83 @@ func (d *Daemon) applyNetMap(nm *overmeshv1.NetMap, eng wgengine.Engine, cm *mag
 	if err := eng.SetPeers(peerCfgs); err != nil {
 		return err
 	}
+	d.applyFilter(nm, eng)
+	d.applyDNS(nm, eng)
 	if cm != nil {
 		cm.SetStunServers(stunHosts)
 		cm.SetPeers(online)
 	}
 	log.Printf("daemon: applied netmap seq %d (%d peers)", nm.GetSeq(), len(seen))
 	return nil
+}
+
+// applyFilter installs the netmap's compiled access rules.
+func (d *Daemon) applyFilter(nm *overmeshv1.NetMap, eng wgengine.Engine) {
+	eng.SetFilter(filter.FromProto(nm.GetFilter(), nm.GetFilterEnabled()))
+	if nm.GetFilterEnabled() && eng.Kind() == "kernel" {
+		d.mu.Lock()
+		warned := d.kernWarn
+		d.kernWarn = true
+		d.mu.Unlock()
+		if !warned {
+			log.Print("daemon: WARNING network has access rules but the kernel engine cannot enforce them; use -wg-mode auto for enforcement")
+		}
+	}
+}
+
+// applyDNS runs the overlay resolver and keeps its records in sync with
+// the netmap; the zone is installed as an OS search domain so bare
+// hostnames work ("ping ps-iphone").
+func (d *Daemon) applyDNS(nm *overmeshv1.NetMap, eng wgengine.Engine) {
+	domain := nm.GetDns().GetDomain()
+	if domain == "" {
+		return
+	}
+
+	records := map[string][]netip.Addr{}
+	add := func(name string, ips []string) {
+		var addrs []netip.Addr
+		for _, s := range ips {
+			if p, err := netip.ParsePrefix(s); err == nil {
+				addrs = append(addrs, p.Addr())
+			} else if a, err := netip.ParseAddr(s); err == nil {
+				addrs = append(addrs, a)
+			}
+		}
+		if name != "" && len(addrs) > 0 {
+			records[name] = addrs
+		}
+	}
+	add(nm.GetSelf().GetHostname(), nm.GetSelf().GetOverlayIps())
+	for _, p := range nm.GetPeers() {
+		add(p.GetHostname(), p.GetOverlayIps())
+	}
+
+	d.mu.Lock()
+	srv := d.dnsSrv
+	selfV4 := d.selfV4
+	needStart := srv == nil && selfV4.IsValid()
+	if needStart {
+		srv = meshdns.NewServer(log.Printf)
+		d.dnsSrv = srv
+	}
+	d.status.Domain = domain
+	d.mu.Unlock()
+
+	srv.SetRecords(domain, records)
+	if needStart {
+		if err := srv.Start(selfV4); err != nil {
+			log.Printf("daemon: overlay DNS: %v", err)
+			return
+		}
+		if err := meshdns.ConfigureOS(eng.IfName(), domain, selfV4, log.Printf); err != nil {
+			log.Printf("daemon: OS DNS config: %v (names still resolve as <host>.%s via the resolver)", err, domain)
+		} else {
+			d.mu.Lock()
+			d.dnsOSDone = true
+			d.mu.Unlock()
+		}
+	}
 }
 
 // buildPeerConfigsLocked renders engine peer configs from current state,

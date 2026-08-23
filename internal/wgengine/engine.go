@@ -16,6 +16,8 @@ import (
 	"net/netip"
 
 	"golang.zx2c4.com/wireguard/conn"
+
+	"github.com/panagiotis1226/overmesh/internal/filter"
 )
 
 // MTU is conservative for Phase 1; per-path PMTU probing raises it in
@@ -58,6 +60,10 @@ type Engine interface {
 	// SetPeerEndpoint moves one peer's endpoint without touching the
 	// rest of its config (magicsock path changes).
 	SetPeerEndpoint(publicKey [32]byte, endpoint netip.AddrPort) error
+	// SetFilter installs the inbound packet filter (nil allows all).
+	// Only the userspace engine enforces it; the kernel engine logs a
+	// warning and ignores it.
+	SetFilter(f *filter.Filter)
 	// IfName is the actual interface name (e.g. "overmesh0" or "utun4").
 	IfName() string
 	// Kind is "kernel" or "userspace".

@@ -29,6 +29,10 @@ type Coordinator struct {
 	// Relays (URLs) advertised via netmap, home relay first. Set once at
 	// startup before serving.
 	Relays []string
+	// DNSBase is the overlay DNS suffix ("mesh"): each network's zone is
+	// "<network>.<DNSBase>". Empty disables overlay DNS. Set once at
+	// startup.
+	DNSBase string
 
 	mu      sync.Mutex
 	ipams   map[int64]*ipam.Allocator                 // networkID -> allocator
@@ -318,16 +322,25 @@ func (c *Coordinator) buildNetMapLocked(n store.Node) (*overmeshv1.NetMap, error
 	if err != nil {
 		return nil, err
 	}
+	filterRules, filterEnabled, err := c.CompileFilterForNode(n)
+	if err != nil {
+		return nil, err
+	}
 	nm := &overmeshv1.NetMap{
-		Seq:         c.seq[n.NetworkID],
-		StunServers: c.StunServers,
-		Relays:      c.Relays,
+		Seq:           c.seq[n.NetworkID],
+		StunServers:   c.StunServers,
+		Relays:        c.Relays,
+		Filter:        filterRules,
+		FilterEnabled: filterEnabled,
 		Self: &overmeshv1.Node{
 			NodeId:     uint64(n.ID),
 			Hostname:   n.Hostname,
 			NetworkId:  nw.Name,
 			OverlayIps: overlayCIDRs(n),
 		},
+	}
+	if c.DNSBase != "" {
+		nm.Dns = &overmeshv1.DNSConfig{Domain: nw.Name + "." + c.DNSBase}
 	}
 	for _, p := range nodes {
 		if p.ID == n.ID {

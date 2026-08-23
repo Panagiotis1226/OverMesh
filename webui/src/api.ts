@@ -27,6 +27,16 @@ export type ServerStatus = {
   network: string
   v4_prefix: string
   v6_prefix: string
+  dns_domain: string
+}
+
+export type ACLRule = {
+  id?: number
+  action: 'allow' | 'deny'
+  src_ids: number[]
+  dst_ids: number[]
+  protocol: '' | 'tcp' | 'udp' | 'icmp'
+  ports: string[]
 }
 
 export class ApiError extends Error {
@@ -66,4 +76,8 @@ export const api = {
   createSetupKey: (reusable: boolean, expiresHours: number) =>
     req<SetupKey>('POST', '/api/setupkeys', { reusable, expires_hours: expiresHours }),
   revokeSetupKey: (id: number) => req<{ ok: boolean }>('DELETE', `/api/setupkeys/${id}`),
+  acl: () => req<{ rules: ACLRule[] }>('GET', '/api/acl'),
+  setACL: (rules: ACLRule[]) => req<{ ok: boolean }>('PUT', '/api/acl', { rules }),
+  checkACL: (src_id: number, dst_id: number, protocol: string, port: number) =>
+    req<{ allowed: boolean }>('POST', '/api/acl/check', { src_id, dst_id, protocol, port }),
 }

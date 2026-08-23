@@ -128,6 +128,41 @@ message NetMap {
   // relay. Traffic falls back to the relay whenever no direct path
   // exists; payloads stay WireGuard-encrypted end to end.
   repeated string relays = 5;
+  // Overlay DNS configuration.
+  DNSConfig dns = 6;
+  // Inbound packet filter for THIS node, compiled from the network's
+  // access rules: first matching rule wins; when filter_enabled and no
+  // rule matches, the packet is dropped. Enforced on the receiving node
+  // (the WireGuard source address is cryptographically bound to the
+  // peer, so filtering by overlay source is sound).
+  repeated FilterRule filter = 7;
+  // When false the network has no access rules: allow everything.
+  bool filter_enabled = 8;
+}
+
+// DNSConfig tells the daemon how to serve and register overlay names.
+message DNSConfig {
+  // The network's DNS zone, e.g. "default.mesh". The daemon answers
+  // <hostname>.<domain> for every node in the netmap and installs the
+  // domain as an OS search domain so bare hostnames ("ps-iphone")
+  // resolve too.
+  string domain = 1;
+}
+
+// FilterRule matches inbound overlay packets on the receiving node.
+message FilterRule {
+  bool allow = 1;
+  // Source overlay addresses (CIDR). Empty = any source.
+  repeated string src_cidrs = 2;
+  // "" = any protocol; otherwise "tcp", "udp", "icmp".
+  string protocol = 3;
+  // Destination ports (tcp/udp only). Empty = all ports.
+  repeated PortRange dst_ports = 4;
+}
+
+message PortRange {
+  uint32 first = 1;
+  uint32 last = 2; // inclusive; single port when last == first
 }
 
 // Node is the receiving node's own record.

@@ -2,7 +2,7 @@
 
 A fully self-hostable **WireGuard-based overlay mesh VPN** — control plane included — in the Tailscale / NetBird class.
 
-> Status: **Phase 3 complete** — every peer pair is now connectable. The control plane embeds the OMR relay (DERP-style, TCP, `/relay` on the web port; payloads stay WireGuard-encrypted end to end), nodes bootstrap through it instantly while ICE races for a direct path, cone NATs upgrade to `direct`, symmetric NATs stay on `relay` — and if an established direct path dies (UDP blocked, network change), traffic **automatically falls back to the relay's TCP connection**. Standalone `overmesh-relay` deploys extra regions. See [`docs/PLAN.md`](docs/PLAN.md).
+> Status: **Phase 4 complete** — overlay DNS and web-managed access rules. Devices resolve by **bare hostname** (`ping ps-iphone`, `ssh user@server-1` — no suffix needed): each daemon runs a scoped resolver for `<network>.mesh` and installs it as an OS search domain, Tailscale-style. Access rules are edited **entirely in the web UI** (visual rule builder + "can A reach B:22?" dry-run tester, JSON import/export for backup only), stored in the database, compiled per node into the netmap, and enforced on the receiving node's data plane the moment you hit save. See [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Quickstart (LAN)
 

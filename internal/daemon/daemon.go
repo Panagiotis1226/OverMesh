@@ -33,6 +33,7 @@ import (
 	"github.com/panagiotis1226/overmesh/internal/magicsock"
 	"github.com/panagiotis1226/overmesh/internal/meshdns"
 	"github.com/panagiotis1226/overmesh/internal/relay"
+	"github.com/panagiotis1226/overmesh/internal/router"
 	"github.com/panagiotis1226/overmesh/internal/version"
 	"github.com/panagiotis1226/overmesh/internal/wgengine"
 )
@@ -43,6 +44,7 @@ type Options struct {
 	ListenPort uint16 // WireGuard UDP port
 	IfaceName  string
 	WGMode     string // auto|kernel|userspace
+	MTU        int    // 0 = wgengine.DefaultMTU
 	UseTLS     bool   // TLS to the control plane
 }
 
@@ -56,6 +58,10 @@ type PeerStatus struct {
 	Endpoint  string   `json:"endpoint,omitempty"`
 	RTTms     int64    `json:"rtt_ms,omitempty"`
 	Endpoints []string `json:"endpoints,omitempty"`
+	// Routes this peer serves for the mesh (approved subnet routes).
+	Routes []string `json:"routes,omitempty"`
+	// OffersExit is true when the peer is an approved exit node.
+	OffersExit bool `json:"offers_exit,omitempty"`
 }
 
 // Status is the daemon's answer to `overmesh status`.
@@ -72,7 +78,15 @@ type Status struct {
 	Conn     string       `json:"conn,omitempty"`  // connected | reconnecting
 	Relay    string       `json:"relay,omitempty"` // home relay URL when connected
 	Domain   string       `json:"domain,omitempty"` // overlay DNS zone, e.g. default.mesh
-	Peers    []PeerStatus `json:"peers,omitempty"`
+	// AdvertisedRoutes: what this node offers; ApprovedRoutes: the
+	// admin-approved subset it is actively serving.
+	AdvertisedRoutes []string `json:"advertised_routes,omitempty"`
+	ApprovedRoutes   []string `json:"approved_routes,omitempty"`
+	// ExitNode is the requested exit peer; ExitNodeActive reports
+	// whether its routes are currently installed.
+	ExitNode       string       `json:"exit_node,omitempty"`
+	ExitNodeActive bool         `json:"exit_node_active,omitempty"`
+	Peers          []PeerStatus `json:"peers,omitempty"`
 }
 
 // peerInfo is what the daemon remembers about a peer across netmaps and
@@ -89,6 +103,11 @@ type peerInfo struct {
 	path      magicsock.PathState
 	pathEP    netip.AddrPort
 	rtt       time.Duration
+	// Approved routes this peer serves: subnets always go into
+	// AllowedIPs + the OS table; exit (default) routes only when this
+	// peer is the selected exit node.
+	subnetRoutes []netip.Prefix
+	exitRoutes   []netip.Prefix
 }
 
 // Daemon is the running node agent.
@@ -106,9 +125,17 @@ type Daemon struct {
 	dnsOSDone bool
 	selfV4    netip.Addr
 	kernWarn  bool
+	speedHint bool // logged the kernel-WG throughput tip once
 	peers     map[uint64]*peerInfo
 	status    Status
 	stopped   chan struct{} // closed when the session goroutine exits
+
+	// Phase 5 routing state.
+	adv        *router.Advertiser // forwarding+NAT when we are a router
+	exitCli    *router.ExitClient // policy routing when we USE an exit
+	routeSync  *router.RouteSync  // OS routes for peers' subnet routes
+	exitNode   string             // desired exit peer hostname ("" = none)
+	exitPeerID uint64             // peer currently serving as our exit (0 = none)
 }
 
 // New loads state and returns a Daemon (not yet connected).
@@ -127,7 +154,11 @@ func New(opts Options) (*Daemon, error) {
 func (d *Daemon) MaybeAutoUp() {
 	if d.state.DesiredUp && d.state.Server != "" {
 		log.Printf("daemon: resuming session with %s", d.state.Server)
-		if err := d.Up(d.state.Server, ""); err != nil {
+		if err := d.Up(UpConfig{
+			Server:          d.state.Server,
+			AdvertiseRoutes: d.state.AdvertiseRoutes,
+			ExitNode:        d.state.ExitNode,
+		}); err != nil {
 			log.Printf("daemon: auto-up failed: %v", err)
 		}
 	}
@@ -138,8 +169,14 @@ func (d *Daemon) dial(server string) (*grpc.ClientConn, error) {
 	if d.opts.UseTLS {
 		creds = credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})
 	}
+	// The daemon's own control traffic carries the socket mark so it
+	// bypasses exit-node policy routing (no loops through the tunnel).
+	markedDialer := &net.Dialer{Control: router.MarkControl}
 	return grpc.NewClient(server,
 		grpc.WithTransportCredentials(creds),
+		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+			return markedDialer.DialContext(ctx, "tcp", addr)
+		}),
 		// Detect dead connections: after roaming (new local address)
 		// the old TCP conn silently blackholes, and without keepalives
 		// the netmap/signal streams would hang for minutes. The timeout
@@ -154,15 +191,29 @@ func (d *Daemon) dial(server string) (*grpc.ClientConn, error) {
 	)
 }
 
+// UpConfig is everything `overmesh up` can ask for.
+type UpConfig struct {
+	Server   string
+	SetupKey string // empty when already enrolled
+	// AdvertiseRoutes: CIDRs to offer as a router (0.0.0.0/0 + ::/0 =
+	// exit node); admin approval in the web UI activates them.
+	AdvertiseRoutes []string
+	// ExitNode: hostname of the peer to send all traffic through.
+	ExitNode string
+}
+
 // Up joins (or rejoins) the mesh: register, bring up WireGuard +
-// magicsock, stream netmaps and signals. setupKey may be empty when the
-// machine is already enrolled.
-func (d *Daemon) Up(server, setupKey string) error {
+// magicsock, stream netmaps and signals.
+func (d *Daemon) Up(cfg UpConfig) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.cancel != nil {
 		return fmt.Errorf("already up (overmesh down first)")
 	}
+	if cfg.ExitNode != "" && runtime.GOOS != "linux" {
+		return fmt.Errorf("using an exit node is only supported on Linux for now")
+	}
+	server := cfg.Server
 
 	conn, err := d.dial(server)
 	if err != nil {
@@ -178,12 +229,13 @@ func (d *Daemon) Up(server, setupKey string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	resp, err := client.RegisterNode(ctx, &overmeshv1.RegisterNodeRequest{
-		MachineKey:    d.state.MachineKey().Public().Bytes(),
-		NodeKey:       d.state.NodeKey().Public().Bytes(),
-		SetupKey:      setupKey,
-		Hostname:      hostname,
-		Os:            runtime.GOOS,
-		ClientVersion: version.Long(),
+		MachineKey:       d.state.MachineKey().Public().Bytes(),
+		NodeKey:          d.state.NodeKey().Public().Bytes(),
+		SetupKey:         cfg.SetupKey,
+		Hostname:         hostname,
+		Os:               runtime.GOOS,
+		ClientVersion:    version.Long(),
+		AdvertisedRoutes: cfg.AdvertiseRoutes,
 	})
 	cancel()
 	if err != nil {
@@ -207,6 +259,8 @@ func (d *Daemon) Up(server, setupKey string) error {
 
 	d.state.Server = server
 	d.state.DesiredUp = true
+	d.state.AdvertiseRoutes = cfg.AdvertiseRoutes
+	d.state.ExitNode = cfg.ExitNode
 	if err := d.state.Save(d.opts.StateDir); err != nil {
 		conn.Close()
 		return err
@@ -214,15 +268,19 @@ func (d *Daemon) Up(server, setupKey string) error {
 
 	d.peers = make(map[uint64]*peerInfo)
 	d.selfV4 = selfV4.Addr()
+	d.exitNode = cfg.ExitNode
+	d.exitPeerID = 0
 	d.status = Status{
-		Version:  version.Long(),
-		Running:  true,
-		Server:   server,
-		Network:  resp.GetNetworkId(),
-		Hostname: resp.GetHostname(),
-		IPv4:     selfV4.Addr().String(),
-		IPv6:     selfV6.Addr().String(),
-		Conn:     "connecting",
+		Version:          version.Long(),
+		Running:          true,
+		Server:           server,
+		Network:          resp.GetNetworkId(),
+		Hostname:         resp.GetHostname(),
+		IPv4:             selfV4.Addr().String(),
+		IPv6:             selfV6.Addr().String(),
+		Conn:             "connecting",
+		AdvertisedRoutes: cfg.AdvertiseRoutes,
+		ExitNode:         cfg.ExitNode,
 	}
 
 	sctx, scancel := context.WithCancel(context.Background())
@@ -248,10 +306,14 @@ func (d *Daemon) session(ctx context.Context, conn *grpc.ClientConn, client over
 		Addresses:  []netip.Prefix{selfV4, selfV6},
 		Routes:     overlayRoutes(selfV4, selfV6),
 		Mode:       d.opts.WGMode,
+		MTU:        d.opts.MTU,
 		Logf:       log.Printf,
 	}
 	if d.opts.WGMode != "kernel" {
 		bind = magicsock.NewBind(log.Printf)
+		// Mark WireGuard's socket so its packets bypass exit-node
+		// policy routing.
+		bind.SetSocketControl(router.MarkControl)
 		engOpts.Bind = bind
 	}
 
@@ -274,6 +336,9 @@ func (d *Daemon) session(ctx context.Context, conn *grpc.ClientConn, client over
 	d.engine = eng
 	d.connmgr = cm
 	d.bind = bind
+	d.adv = router.NewAdvertiser(log.Printf)
+	d.exitCli = router.NewExitClient(log.Printf)
+	d.routeSync = router.NewRouteSync(log.Printf)
 	d.status.Iface = eng.IfName()
 	d.status.Engine = eng.Kind()
 	d.mu.Unlock()
@@ -282,7 +347,10 @@ func (d *Daemon) session(ctx context.Context, conn *grpc.ClientConn, client over
 		rc := d.relayCli
 		ds := d.dnsSrv
 		osDone := d.dnsOSDone
+		adv, ec, rs := d.adv, d.exitCli, d.routeSync
 		d.relayCli, d.dnsSrv, d.dnsOSDone = nil, nil, false
+		d.adv, d.exitCli, d.routeSync = nil, nil, nil
+		d.exitPeerID = 0
 		d.mu.Unlock()
 		if rc != nil {
 			rc.Close()
@@ -292,6 +360,15 @@ func (d *Daemon) session(ctx context.Context, conn *grpc.ClientConn, client over
 		}
 		if osDone {
 			meshdns.DeconfigureOS(eng.IfName(), log.Printf)
+		}
+		if ec != nil {
+			ec.Remove()
+		}
+		if rs != nil {
+			rs.Close()
+		}
+		if adv != nil {
+			adv.Close()
 		}
 	}()
 
@@ -391,6 +468,18 @@ func (d *Daemon) applyNetMap(nm *overmeshv1.NetMap, eng wgengine.Engine, cm *mag
 				pi.ipv6 = pfx.Addr().String()
 			}
 		}
+		pi.subnetRoutes, pi.exitRoutes = pi.subnetRoutes[:0], pi.exitRoutes[:0]
+		for _, cidr := range p.GetAllowedRoutes() {
+			pfx, err := netip.ParsePrefix(cidr)
+			if err != nil {
+				continue
+			}
+			if pfx.Bits() == 0 {
+				pi.exitRoutes = append(pi.exitRoutes, pfx)
+			} else {
+				pi.subnetRoutes = append(pi.subnetRoutes, pfx)
+			}
+		}
 		if pi.online {
 			online[id] = true
 		}
@@ -400,6 +489,7 @@ func (d *Daemon) applyNetMap(nm *overmeshv1.NetMap, eng wgengine.Engine, cm *mag
 			delete(d.peers, id)
 		}
 	}
+	d.selectExitPeerLocked()
 	peerCfgs := d.buildPeerConfigsLocked()
 	d.refreshPeerStatusLocked()
 	d.mu.Unlock()
@@ -409,6 +499,7 @@ func (d *Daemon) applyNetMap(nm *overmeshv1.NetMap, eng wgengine.Engine, cm *mag
 	}
 	d.applyFilter(nm, eng)
 	d.applyDNS(nm, eng)
+	d.applyRoutes(nm, eng)
 	if cm != nil {
 		cm.SetStunServers(stunHosts)
 		cm.SetPeers(online)
@@ -486,6 +577,140 @@ func (d *Daemon) applyDNS(nm *overmeshv1.NetMap, eng wgengine.Engine) {
 	}
 }
 
+// selectExitPeerLocked resolves the desired exit-node hostname against
+// the current peer set. Held: d.mu.
+func (d *Daemon) selectExitPeerLocked() {
+	d.exitPeerID = 0
+	if d.exitNode == "" {
+		return
+	}
+	for _, pi := range d.peers {
+		if strings.EqualFold(pi.hostname, d.exitNode) && len(pi.exitRoutes) > 0 {
+			d.exitPeerID = pi.nodeID
+			return
+		}
+	}
+}
+
+// applyRoutes programs the OS around the netmap's route information:
+// forwarding+NAT when this node is an approved router, OS routes for
+// peers' subnet routes, and exit-node policy routing when selected.
+func (d *Daemon) applyRoutes(nm *overmeshv1.NetMap, eng wgengine.Engine) {
+	var approved []netip.Prefix
+	for _, cidr := range nm.GetSelf().GetApprovedRoutes() {
+		if pfx, err := netip.ParsePrefix(cidr); err == nil {
+			approved = append(approved, pfx)
+		}
+	}
+
+	d.mu.Lock()
+	adv, ec, rs := d.adv, d.exitCli, d.routeSync
+	exitID := d.exitPeerID
+	exitWanted := d.exitNode
+	var subnets []netip.Prefix
+	var exitV6 bool
+	for _, pi := range d.peers {
+		subnets = append(subnets, pi.subnetRoutes...)
+		if pi.nodeID == exitID {
+			for _, r := range pi.exitRoutes {
+				if r.Addr().Is6() {
+					exitV6 = true
+				}
+			}
+		}
+	}
+	var approvedStr []string
+	for _, p := range approved {
+		approvedStr = append(approvedStr, p.String())
+	}
+	d.status.ApprovedRoutes = approvedStr
+	d.status.ExitNodeActive = exitID != 0
+	d.mu.Unlock()
+
+	if adv != nil {
+		if err := adv.Apply(eng.IfName(), approved); err != nil {
+			log.Printf("daemon: router config: %v", err)
+		}
+	}
+	if len(approved) > 0 && eng.Kind() == "userspace" && runtime.GOOS == "linux" {
+		d.mu.Lock()
+		hinted := d.speedHint
+		d.speedHint = true
+		d.mu.Unlock()
+		if !hinted {
+			log.Print("daemon: tip: for maximum router/exit-node throughput on a server with a static endpoint, restart with -wg-mode kernel (kernel WireGuard)")
+		}
+	}
+	if rs != nil {
+		rs.Sync(eng.IfName(), subnets)
+	}
+	if ec != nil {
+		switch {
+		case exitID != 0:
+			if err := ec.Apply(eng.IfName(), exitV6); err != nil {
+				log.Printf("daemon: exit-node routing: %v", err)
+			}
+		default:
+			ec.Remove()
+			if exitWanted != "" {
+				log.Printf("daemon: exit node %q not available (offline, unknown, or not an approved exit node)", exitWanted)
+			}
+		}
+	}
+}
+
+// SetExitNode switches the exit node at runtime ("" turns it off).
+func (d *Daemon) SetExitNode(name string) error {
+	if name != "" && runtime.GOOS != "linux" {
+		return fmt.Errorf("using an exit node is only supported on Linux for now")
+	}
+	d.mu.Lock()
+	if d.cancel == nil {
+		d.mu.Unlock()
+		return fmt.Errorf("not up")
+	}
+	d.exitNode = name
+	d.state.ExitNode = name
+	_ = d.state.Save(d.opts.StateDir)
+	d.status.ExitNode = name
+	d.selectExitPeerLocked()
+	found := d.exitPeerID != 0
+	eng := d.engine
+	ec := d.exitCli
+	exitID := d.exitPeerID
+	var exitV6 bool
+	if pi, ok := d.peers[exitID]; ok {
+		for _, r := range pi.exitRoutes {
+			if r.Addr().Is6() {
+				exitV6 = true
+			}
+		}
+	}
+	d.status.ExitNodeActive = found
+	cfgs := d.buildPeerConfigsLocked()
+	d.refreshPeerStatusLocked()
+	d.mu.Unlock()
+
+	if name != "" && !found {
+		return fmt.Errorf("no approved exit node named %q in the netmap (approve its exit route in the web UI first)", name)
+	}
+	if eng != nil {
+		if err := eng.SetPeers(cfgs); err != nil {
+			return err
+		}
+	}
+	if ec != nil {
+		if found {
+			if err := ec.Apply(eng.IfName(), exitV6); err != nil {
+				return err
+			}
+		} else {
+			ec.Remove()
+		}
+	}
+	return nil
+}
+
 // buildPeerConfigsLocked renders engine peer configs from current state,
 // applying the path ladder: ICE direct > relay > static LAN hint.
 // Held: d.mu.
@@ -494,6 +719,10 @@ func (d *Daemon) buildPeerConfigsLocked() []wgengine.PeerConfig {
 	var out []wgengine.PeerConfig
 	for _, pi := range d.peers {
 		pc := wgengine.PeerConfig{PublicKey: pi.pubKey, AllowedIPs: append([]netip.Prefix(nil), pi.allowed...)}
+		pc.AllowedIPs = append(pc.AllowedIPs, pi.subnetRoutes...)
+		if pi.nodeID == d.exitPeerID {
+			pc.AllowedIPs = append(pc.AllowedIPs, pi.exitRoutes...)
+		}
 		switch {
 		case pi.path == magicsock.PathDirect && pi.pathEP.IsValid():
 			pc.Endpoint = pi.pathEP
@@ -576,7 +805,7 @@ func (d *Daemon) ensureRelay(urls []string) {
 	var pub [32]byte
 	copy(pub[:], d.state.NodeKey().Public().Bytes())
 	cli := relay.NewClient(home, d.state.NodeKey().Raw(), pub,
-		bind.DeliverRelayPacket, log.Printf)
+		bind.DeliverRelayPacket, log.Printf, router.MarkControl)
 	bind.SetRelaySender(cli.Send)
 	d.mu.Lock()
 	d.relayCli = cli
@@ -659,11 +888,15 @@ func (d *Daemon) refreshPeerStatusLocked() {
 	var ps []PeerStatus
 	for _, pi := range d.peers {
 		s := PeerStatus{
-			Hostname:  pi.hostname,
-			IPv4:      pi.ipv4,
-			IPv6:      pi.ipv6,
-			Online:    pi.online,
-			Endpoints: pi.staticEPs,
+			Hostname:   pi.hostname,
+			IPv4:       pi.ipv4,
+			IPv6:       pi.ipv6,
+			Online:     pi.online,
+			Endpoints:  pi.staticEPs,
+			OffersExit: len(pi.exitRoutes) > 0,
+		}
+		for _, r := range pi.subnetRoutes {
+			s.Routes = append(s.Routes, r.String())
 		}
 		switch {
 		case pi.path == magicsock.PathDirect:

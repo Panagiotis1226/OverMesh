@@ -50,8 +50,10 @@ func (d *Daemon) ServeControl(socketPath string) error {
 	})
 	mux.HandleFunc("POST /up", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Server string `json:"server"`
-			Key    string `json:"key"`
+			Server          string   `json:"server"`
+			Key             string   `json:"key"`
+			AdvertiseRoutes []string `json:"advertise_routes"`
+			ExitNode        string   `json:"exit_node"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			httpErr(w, http.StatusBadRequest, "bad request body")
@@ -61,8 +63,28 @@ func (d *Daemon) ServeControl(socketPath string) error {
 			httpErr(w, http.StatusBadRequest, "server address required")
 			return
 		}
-		if err := d.Up(req.Server, req.Key); err != nil {
+		err := d.Up(UpConfig{
+			Server:          req.Server,
+			SetupKey:        req.Key,
+			AdvertiseRoutes: req.AdvertiseRoutes,
+			ExitNode:        req.ExitNode,
+		})
+		if err != nil {
 			httpErr(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		writeJSON(w, d.Status())
+	})
+	mux.HandleFunc("POST /exitnode", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Name string `json:"name"` // "" turns the exit node off
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			httpErr(w, http.StatusBadRequest, "bad request body")
+			return
+		}
+		if err := d.SetExitNode(req.Name); err != nil {
+			httpErr(w, http.StatusConflict, err.Error())
 			return
 		}
 		writeJSON(w, d.Status())

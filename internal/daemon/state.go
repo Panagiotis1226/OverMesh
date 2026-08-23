@@ -18,6 +18,12 @@ type State struct {
 	NodePrivateHex    string `json:"node_private_hex"`
 	Server            string `json:"server,omitempty"`
 	DesiredUp         bool   `json:"desired_up,omitempty"`
+	// AdvertiseRoutes are CIDRs this node offers to route for the mesh
+	// (0.0.0.0/0 + ::/0 = exit-node offer); re-sent on every register.
+	AdvertiseRoutes []string `json:"advertise_routes,omitempty"`
+	// ExitNode is the hostname of the peer all traffic should egress
+	// through ("" = none).
+	ExitNode string `json:"exit_node,omitempty"`
 
 	machinePriv key.MachinePrivate
 	nodePriv    key.NodePrivate

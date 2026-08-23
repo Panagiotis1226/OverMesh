@@ -31,7 +31,7 @@ func newKernel(opts Options) (Engine, error) {
 
 	attrs := netlink.NewLinkAttrs()
 	attrs.Name = opts.IfaceName
-	attrs.MTU = MTU
+	attrs.MTU = opts.mtu()
 	link := &netlink.Wireguard{LinkAttrs: attrs}
 	if err := netlink.LinkAdd(link); err != nil {
 		return nil, fmt.Errorf("wgengine: kernel link add: %w", err)
@@ -53,7 +53,7 @@ func newKernel(opts Options) (Engine, error) {
 		cleanup()
 		return nil, fmt.Errorf("wgengine: kernel device config: %w", err)
 	}
-	if err := configureInterface(opts.IfaceName, opts.Addresses, opts.Routes, opts.Logf); err != nil {
+	if err := configureInterface(opts.IfaceName, opts.mtu(), opts.Addresses, opts.Routes, opts.Logf); err != nil {
 		wg.Close()
 		cleanup()
 		return nil, err
@@ -109,7 +109,9 @@ func (e *kernelEngine) Close() error {
 // installs the overlay routes. Shared by the kernel and userspace paths.
 // IPv6 failures degrade to a warning: hosts with IPv6 disabled still get
 // a working IPv4 mesh.
-func configureInterface(name string, addrs, routes []netip.Prefix, logf func(string, ...any)) error {
+func configureInterface(name string, _ int, addrs, routes []netip.Prefix, logf func(string, ...any)) error {
+	// (MTU is already set: netlink attrs for the kernel link, CreateTUN
+	// for the userspace device.)
 	link, err := netlink.LinkByName(name)
 	if err != nil {
 		return fmt.Errorf("link %s: %w", name, err)

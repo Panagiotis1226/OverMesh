@@ -24,10 +24,17 @@ const usage = `overmesh — self-hosted WireGuard mesh VPN
 
 Usage:
   overmesh up -server <host:port> [-key sk-...]   join the mesh
+      [-advertise-routes 10.0.0.0/24,...]         offer LAN subnets to the mesh
+      [-advertise-exit-node]                      offer to be an exit node
+      [-exit-node <peer-hostname>]                send all traffic via that peer
   overmesh down                                   leave the mesh
   overmesh status                                 show self + peers
   overmesh ping <peer-hostname|ip> [-c N]         ping a peer over the overlay
+  overmesh exit-node <peer-hostname|off>          switch exit node on the fly
   overmesh version
+
+Routers and exit nodes must be approved in the web UI before they carry
+traffic (Devices table, routes column).
 
 Global flag: -socket <path> to reach a non-default overmeshd socket.
 The daemon (overmeshd) must be running; it needs root.
@@ -51,6 +58,8 @@ func main() {
 		err = cmdStatus(args)
 	case "ping":
 		err = cmdPing(args)
+	case "exit-node":
+		err = cmdExitNode(args)
 	case "drop":
 		err = fmt.Errorf("overmesh drop arrives in Phase 6 (see docs/PLAN.md)")
 	default:
@@ -115,15 +124,62 @@ func cmdUp(args []string) error {
 	server := fs.String("server", "", "control plane gRPC address (host:port)")
 	key := fs.String("key", "", "setup key (sk-...), required on first join")
 	socket := fs.String("socket", daemon.DefaultSocketPath(), "daemon control socket")
+	advRoutes := fs.String("advertise-routes", "", "comma-separated CIDRs to offer as a subnet router")
+	advExit := fs.Bool("advertise-exit-node", false, "offer to route ALL mesh traffic to the internet")
+	exitNode := fs.String("exit-node", "", "send all traffic through this peer (Linux)")
 	_ = fs.Parse(args)
 	if *server == "" {
 		return fmt.Errorf("-server is required")
 	}
+
+	var routes []string
+	for _, r := range strings.Split(*advRoutes, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			routes = append(routes, r)
+		}
+	}
+	if *advExit {
+		routes = append(routes, "0.0.0.0/0", "::/0")
+	}
+
+	req := map[string]any{
+		"server": *server, "key": *key,
+		"advertise_routes": routes, "exit_node": *exitNode,
+	}
 	var st daemon.Status
-	if err := call(*socket, "POST", "/up", map[string]string{"server": *server, "key": *key}, &st); err != nil {
+	if err := call(*socket, "POST", "/up", req, &st); err != nil {
 		return err
 	}
 	fmt.Printf("joined %q as %s\n  overlay: %s  %s\n", st.Network, st.Hostname, st.IPv4, st.IPv6)
+	if len(routes) > 0 {
+		fmt.Printf("  offering routes: %s (awaiting admin approval in the web UI)\n", strings.Join(routes, ", "))
+	}
+	if *exitNode != "" {
+		fmt.Printf("  exit node requested: %s\n", *exitNode)
+	}
+	return nil
+}
+
+func cmdExitNode(args []string) error {
+	fs := flag.NewFlagSet("exit-node", flag.ExitOnError)
+	socket := fs.String("socket", daemon.DefaultSocketPath(), "daemon control socket")
+	_ = fs.Parse(args)
+	if fs.NArg() < 1 {
+		return fmt.Errorf("usage: overmesh exit-node <peer-hostname|off>")
+	}
+	name := fs.Arg(0)
+	if name == "off" || name == "none" {
+		name = ""
+	}
+	var st daemon.Status
+	if err := call(*socket, "POST", "/exitnode", map[string]string{"name": name}, &st); err != nil {
+		return err
+	}
+	if name == "" {
+		fmt.Println("exit node off")
+	} else {
+		fmt.Printf("all traffic now routes via %s\n", name)
+	}
 	return nil
 }
 
@@ -172,6 +228,22 @@ func cmdStatus(args []string) error {
 	if st.Domain != "" {
 		fmt.Printf("  dns     %s (peers reachable by bare hostname)\n", st.Domain)
 	}
+	if len(st.AdvertisedRoutes) > 0 {
+		fmt.Printf("  routes  offering %s", strings.Join(st.AdvertisedRoutes, ", "))
+		if len(st.ApprovedRoutes) > 0 {
+			fmt.Printf("  (approved: %s)", strings.Join(st.ApprovedRoutes, ", "))
+		} else {
+			fmt.Print("  (none approved yet)")
+		}
+		fmt.Println()
+	}
+	if st.ExitNode != "" {
+		state := "waiting for approval/peer"
+		if st.ExitNodeActive {
+			state = "active"
+		}
+		fmt.Printf("  exit    via %s [%s]\n", st.ExitNode, state)
+	}
 	if len(st.Peers) == 0 {
 		fmt.Println("  no peers yet")
 		return nil
@@ -188,6 +260,12 @@ func cmdStatus(args []string) error {
 			if p.RTTms > 0 {
 				path += fmt.Sprintf(" (%dms)", p.RTTms)
 			}
+		}
+		if p.OffersExit {
+			path += "  [exit node]"
+		}
+		if len(p.Routes) > 0 {
+			path += "  [routes " + strings.Join(p.Routes, ",") + "]"
 		}
 		fmt.Printf("  %-20s %-16s %-28s %-8s %s\n", p.Hostname, p.IPv4, p.IPv6, state, path)
 	}

@@ -199,8 +199,15 @@ type RegisterNodeRequest struct {
 	// GOOS value: "linux", "darwin", "windows", "ios", "android".
 	Os            string `protobuf:"bytes,5,opt,name=os,proto3" json:"os,omitempty"`
 	ClientVersion string `protobuf:"bytes,6,opt,name=client_version,json=clientVersion,proto3" json:"client_version,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Routes this node OFFERS to serve for the mesh (CIDR). A default
+	// route (0.0.0.0/0 or ::/0) is an exit-node offer. Offers do nothing
+	// until an admin approves them in the web UI; the approved subset
+	// comes back in NetMap (self.approved_routes for the router itself,
+	// peer.allowed_routes for everyone else). Re-registering replaces the
+	// offer set; approval state is remembered per route.
+	AdvertisedRoutes []string `protobuf:"bytes,7,rep,name=advertised_routes,json=advertisedRoutes,proto3" json:"advertised_routes,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *RegisterNodeRequest) Reset() {
@@ -273,6 +280,13 @@ func (x *RegisterNodeRequest) GetClientVersion() string {
 		return x.ClientVersion
 	}
 	return ""
+}
+
+func (x *RegisterNodeRequest) GetAdvertisedRoutes() []string {
+	if x != nil {
+		return x.AdvertisedRoutes
+	}
+	return nil
 }
 
 type RegisterNodeResponse struct {
@@ -790,13 +804,16 @@ func (x *PortRange) GetLast() uint32 {
 
 // Node is the receiving node's own record.
 type Node struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	NodeId        uint64                 `protobuf:"varint,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	Hostname      string                 `protobuf:"bytes,2,opt,name=hostname,proto3" json:"hostname,omitempty"`
-	NetworkId     string                 `protobuf:"bytes,3,opt,name=network_id,json=networkId,proto3" json:"network_id,omitempty"`
-	OverlayIps    []string               `protobuf:"bytes,4,rep,name=overlay_ips,json=overlayIps,proto3" json:"overlay_ips,omitempty"` // CIDR notation, v4 and v6
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	NodeId     uint64                 `protobuf:"varint,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Hostname   string                 `protobuf:"bytes,2,opt,name=hostname,proto3" json:"hostname,omitempty"`
+	NetworkId  string                 `protobuf:"bytes,3,opt,name=network_id,json=networkId,proto3" json:"network_id,omitempty"`
+	OverlayIps []string               `protobuf:"bytes,4,rep,name=overlay_ips,json=overlayIps,proto3" json:"overlay_ips,omitempty"` // CIDR notation, v4 and v6
+	// The admin-approved subset of this node's advertised_routes. The
+	// daemon enables forwarding + NAT only for these.
+	ApprovedRoutes []string `protobuf:"bytes,5,rep,name=approved_routes,json=approvedRoutes,proto3" json:"approved_routes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Node) Reset() {
@@ -857,6 +874,13 @@ func (x *Node) GetOverlayIps() []string {
 	return nil
 }
 
+func (x *Node) GetApprovedRoutes() []string {
+	if x != nil {
+		return x.ApprovedRoutes
+	}
+	return nil
+}
+
 // Peer is another node this node may communicate with.
 type Peer struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
@@ -867,8 +891,13 @@ type Peer struct {
 	// Known UDP endpoints ("ip:port") to try for a direct connection.
 	// Phase 1 fills these with declared/LAN endpoints; Phase 2 adds
 	// STUN-discovered ones.
-	Endpoints     []string `protobuf:"bytes,5,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
-	Online        bool     `protobuf:"varint,6,opt,name=online,proto3" json:"online,omitempty"`
+	Endpoints []string `protobuf:"bytes,5,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
+	Online    bool     `protobuf:"varint,6,opt,name=online,proto3" json:"online,omitempty"`
+	// Admin-approved routes this peer serves (CIDR). Subnet routes go
+	// into the peer's WireGuard AllowedIPs and the OS routing table on
+	// every node; a default route marks an exit-node OFFER and is only
+	// activated when the user selects this peer as their exit node.
+	AllowedRoutes []string `protobuf:"bytes,7,rep,name=allowed_routes,json=allowedRoutes,proto3" json:"allowed_routes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -945,6 +974,13 @@ func (x *Peer) GetOnline() bool {
 	return false
 }
 
+func (x *Peer) GetAllowedRoutes() []string {
+	if x != nil {
+		return x.AllowedRoutes
+	}
+	return nil
+}
+
 var File_overmesh_v1_coordination_proto protoreflect.FileDescriptor
 
 const file_overmesh_v1_coordination_proto_rawDesc = "" +
@@ -959,7 +995,7 @@ const file_overmesh_v1_coordination_proto_rawDesc = "" +
 	"fromNodeId\x12+\n" +
 	"\x04kind\x18\x04 \x01(\x0e2\x17.overmesh.v1.SignalKindR\x04kind\x12\x18\n" +
 	"\apayload\x18\x05 \x01(\tR\apayload\x12\x18\n" +
-	"\asession\x18\x06 \x01(\x04R\asession\"\xc1\x01\n" +
+	"\asession\x18\x06 \x01(\x04R\asession\"\xee\x01\n" +
 	"\x13RegisterNodeRequest\x12\x1f\n" +
 	"\vmachine_key\x18\x01 \x01(\fR\n" +
 	"machineKey\x12\x19\n" +
@@ -967,7 +1003,8 @@ const file_overmesh_v1_coordination_proto_rawDesc = "" +
 	"\tsetup_key\x18\x03 \x01(\tR\bsetupKey\x12\x1a\n" +
 	"\bhostname\x18\x04 \x01(\tR\bhostname\x12\x0e\n" +
 	"\x02os\x18\x05 \x01(\tR\x02os\x12%\n" +
-	"\x0eclient_version\x18\x06 \x01(\tR\rclientVersion\"\xb0\x01\n" +
+	"\x0eclient_version\x18\x06 \x01(\tR\rclientVersion\x12+\n" +
+	"\x11advertised_routes\x18\a \x03(\tR\x10advertisedRoutes\"\xb0\x01\n" +
 	"\x14RegisterNodeResponse\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\x12\x1d\n" +
 	"\n" +
@@ -1003,14 +1040,15 @@ const file_overmesh_v1_coordination_proto_rawDesc = "" +
 	"\tdst_ports\x18\x04 \x03(\v2\x16.overmesh.v1.PortRangeR\bdstPorts\"5\n" +
 	"\tPortRange\x12\x14\n" +
 	"\x05first\x18\x01 \x01(\rR\x05first\x12\x12\n" +
-	"\x04last\x18\x02 \x01(\rR\x04last\"{\n" +
+	"\x04last\x18\x02 \x01(\rR\x04last\"\xa4\x01\n" +
 	"\x04Node\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x1d\n" +
 	"\n" +
 	"network_id\x18\x03 \x01(\tR\tnetworkId\x12\x1f\n" +
 	"\voverlay_ips\x18\x04 \x03(\tR\n" +
-	"overlayIps\"\xad\x01\n" +
+	"overlayIps\x12'\n" +
+	"\x0fapproved_routes\x18\x05 \x03(\tR\x0eapprovedRoutes\"\xd4\x01\n" +
 	"\x04Peer\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x19\n" +
@@ -1018,7 +1056,8 @@ const file_overmesh_v1_coordination_proto_rawDesc = "" +
 	"\voverlay_ips\x18\x04 \x03(\tR\n" +
 	"overlayIps\x12\x1c\n" +
 	"\tendpoints\x18\x05 \x03(\tR\tendpoints\x12\x16\n" +
-	"\x06online\x18\x06 \x01(\bR\x06online*\x8a\x01\n" +
+	"\x06online\x18\x06 \x01(\bR\x06online\x12%\n" +
+	"\x0eallowed_routes\x18\a \x03(\tR\rallowedRoutes*\x8a\x01\n" +
 	"\n" +
 	"SignalKind\x12\x1b\n" +
 	"\x17SIGNAL_KIND_UNSPECIFIED\x10\x00\x12\x15\n" +

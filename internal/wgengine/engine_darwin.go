@@ -23,7 +23,7 @@ func newKernel(opts Options) (Engine, error) {
 
 // configureInterface assigns addresses and routes with ifconfig/route —
 // the same approach wireguard-tools' wg-quick uses on macOS.
-func configureInterface(name string, addrs, routes []netip.Prefix, logf func(string, ...any)) error {
+func configureInterface(name string, mtu int, addrs, routes []netip.Prefix, logf func(string, ...any)) error {
 	for _, a := range addrs {
 		var args []string
 		if a.Addr().Is4() {
@@ -36,7 +36,7 @@ func configureInterface(name string, addrs, routes []netip.Prefix, logf func(str
 			return fmt.Errorf("ifconfig %v: %v: %s", args, err, out)
 		}
 	}
-	if out, err := exec.Command("ifconfig", name, "mtu", strconv.Itoa(MTU), "up").CombinedOutput(); err != nil {
+	if out, err := exec.Command("ifconfig", name, "mtu", strconv.Itoa(mtu), "up").CombinedOutput(); err != nil {
 		return fmt.Errorf("ifconfig up: %v: %s", err, out)
 	}
 	for _, r := range routes {

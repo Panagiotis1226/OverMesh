@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.25.0"
+
+jobs:
+  test:
+    name: Vet & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: go vet
+        run: go vet ./...
+      - name: go test (race)
+        run: go test -race ./...
+      - name: generated protobuf code is up to date
+        run: |
+          make tools proto
+          git diff --exit-code -- gen/ || {
+            echo "::error::gen/ is stale — run 'make tools proto' and commit"; exit 1; }
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: linux,  goarch: amd64 }
+          - { goos: linux,  goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # for git describe in the version stamp
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build all binaries
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          VERSION=$(git describe --tags --always)
+          mkdir -p dist
+          for b in overmesh-server overmeshd overmesh overmesh-relay; do
+            go build -trimpath \
+              -ldflags "-s -w -X github.com/panagiotis1226/overmesh/internal/version.Version=$VERSION" \
+              -o "dist/$b" "./cmd/$b"
+          done
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: overmesh_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: dist/
+          retention-days: 30
+
+  lab-smoke:
+    name: NAT lab smoke (${{ matrix.nat_a }} / ${{ matrix.nat_b }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { nat_a: cone, nat_b: cone }
+          - { nat_a: symmetric, nat_b: cone }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Lab up + verify + down
+        run: |
+          sudo env "PATH=$PATH" test/lab/lab.sh up --nat-a ${{ matrix.nat_a }} --nat-b ${{ matrix.nat_b }}
+          sudo env "PATH=$PATH" test/lab/lab.sh verify
+          sudo env "PATH=$PATH" test/lab/lab.sh down
+
+  skeleton-e2e:
+    name: Walking skeleton end-to-end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Server up, healthz, daemon probe
+        run: |
+          make build
+          ./bin/overmesh-server -http 127.0.0.1:8080 -grpc 127.0.0.1:41641 &
+          sleep 2
+          curl -fsS http://127.0.0.1:8080/healthz
+          ./bin/overmeshd -probe -server 127.0.0.1:41641

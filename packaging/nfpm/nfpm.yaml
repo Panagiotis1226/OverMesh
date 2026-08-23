@@ -1,0 +1,26 @@
+# nfpm config for the OverMesh node package (daemon + CLI).
+# Built in CI for deb + rpm, amd64 + arm64:
+#   VERSION=v0.6.0 GOARCH=amd64 nfpm package -f packaging/nfpm/nfpm.yaml -p deb
+name: overmesh
+arch: "${GOARCH}"
+platform: linux
+version: "${VERSION}"
+section: net
+maintainer: OverMesh <overmesh@localhost>
+description: |
+  Self-hosted WireGuard overlay mesh VPN (node daemon + CLI).
+  NAT holepunching, guaranteed relay fallback, overlay DNS with bare
+  hostnames, web-managed access rules, subnet routers and exit nodes,
+  OverDrop file transfer.
+homepage: https://github.com/panagiotis1226/overmesh
+license: MIT
+contents:
+  - src: dist/overmeshd
+    dst: /usr/bin/overmeshd
+  - src: dist/overmesh
+    dst: /usr/bin/overmesh
+  - src: packaging/systemd/overmeshd.service
+    dst: /usr/lib/systemd/system/overmeshd.service
+scripts:
+  postinstall: packaging/nfpm/postinstall.sh
+  preremove: packaging/nfpm/preremove.sh

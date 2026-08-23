@@ -1,0 +1,20 @@
+# nfpm config for the OverMesh control-plane package.
+#   VERSION=v0.6.0 GOARCH=amd64 nfpm package -f packaging/nfpm/nfpm-server.yaml -p deb
+name: overmesh-server
+arch: "${GOARCH}"
+platform: linux
+version: "${VERSION}"
+section: net
+maintainer: OverMesh <overmesh@localhost>
+description: |
+  Self-hosted OverMesh control plane: coordination server, embedded web
+  admin UI, STUN, and DERP-style relay in one static binary.
+homepage: https://github.com/panagiotis1226/overmesh
+license: MIT
+contents:
+  - src: dist/overmesh-server
+    dst: /usr/bin/overmesh-server
+  - src: dist/overmesh-relay
+    dst: /usr/bin/overmesh-relay
+  - src: packaging/systemd/overmesh-server.service
+    dst: /usr/lib/systemd/system/overmesh-server.service

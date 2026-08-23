@@ -1,0 +1,32 @@
+# Self-hosted OverMesh control plane.
+#
+#   docker compose -f packaging/docker/docker-compose.yml up -d
+#
+# Then open http://<host>:8080, sign in with ADMIN_PASSWORD, create a
+# setup key, and join devices with:
+#   sudo overmesh up -server <host>:41641 -key sk-...
+#
+# For internet exposure put a TLS reverse proxy in front of 8080 (the
+# relay upgrade endpoint /relay is plain HTTP under the same port) and
+# pass -tls on the daemons, or mount certs and add
+# -tls-cert/-tls-key to the command.
+services:
+  overmesh-server:
+    build:
+      context: ../..
+      dockerfile: packaging/docker/Dockerfile.server
+    container_name: overmesh-server
+    restart: unless-stopped
+    command:
+      - "-admin-password=${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}"
+      - "-stun-advertise=${PUBLIC_HOST:?set PUBLIC_HOST in .env}:3478"
+      - "-relay-advertise=http://${PUBLIC_HOST}:8080/relay"
+    ports:
+      - "8080:8080"        # web UI + API + relay
+      - "41641:41641"      # gRPC coordination
+      - "3478:3478/udp"    # STUN
+    volumes:
+      - overmesh-state:/var/lib/overmesh-server
+
+volumes:
+  overmesh-state:

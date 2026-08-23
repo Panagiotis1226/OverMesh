@@ -1,0 +1,18 @@
+[Unit]
+Description=OverMesh node daemon
+Documentation=https://github.com/panagiotis1226/overmesh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/overmeshd
+Restart=on-failure
+RestartSec=3
+# Needs TUN + netlink + iptables; runs as root like other mesh VPNs.
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+StateDirectory=overmesh
+RuntimeDirectory=overmesh
+
+[Install]
+WantedBy=multi-user.target

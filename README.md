@@ -2,7 +2,7 @@
 
 A fully self-hostable **WireGuard-based overlay mesh VPN** — control plane included — in the Tailscale / NetBird class.
 
-> Status: **Phase 5 complete** — subnet routers and exit nodes, approval-gated in the web UI. A device offers routes with `overmesh up -advertise-routes 192.168.1.0/24` or `-advertise-exit-node`; the offer shows up as a clickable chip in the Devices table and does **nothing until an admin approves it**. Approved subnets become reachable mesh-wide instantly; `overmesh up -exit-node <name>` (or `overmesh exit-node <name>` live) sends a device's whole internet through the chosen exit node using loop-free policy routing — the daemon's own control/relay/WireGuard traffic bypasses the tunnel via socket marks, so roaming and relay fallback keep working while exited. Revoking an approval in the UI cuts traffic within a second. Plus `-mtu` for throughput tuning and an iperf3 bench harness (`test/lab/bench.sh`). See [`docs/PLAN.md`](docs/PLAN.md).
+> Status: **Phase 6 complete** — **OverDrop** file transfer, packaging, and a macOS menu bar app scaffold. `overmesh drop backup.tar server-1` streams any file to a peer over the tunnel — resumable (kill it mid-transfer, rerun, it continues where it stopped), works over the relay path too, sender identity is WireGuard-cryptographic (the overlay source address), and access rules can block it like any other traffic (deny tcp/41645). Received files land in a per-sender inbox (`overmesh inbox`). Packaging shipped: deb/rpm packages with a systemd unit built on every CI run, a control-plane Dockerfile + compose file, and a Homebrew formula template. Phase 5 delivered subnet routers + exit nodes approval-gated in the web UI. See [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Quickstart (LAN)
 
@@ -27,7 +27,7 @@ networks; TLS + internet exposure arrive with Phase 2.
 - **Self-hosted control plane** — single static Go binary with an embedded web admin UI and SQLite storage (Postgres optional). No external services required.
 - **NAT holepunching** — STUN discovery + ICE holepunch, endpoint roaming, direct connections whenever the network allows.
 - **Embedded DERP-style relay** — TLS on :443, embedded in the server and deployable standalone. If holepunching fails or a direct path dies, traffic **always falls back to the relay's TCP/TLS connection** — two nodes that can reach a relay can always talk. Direct-path upgrade happens automatically in the background.
-- **OverDrop** — Taildrop-style peer-to-peer file transfer over the mesh, with resume.
+- **OverDrop** — Taildrop-style peer-to-peer file transfer: `overmesh drop <file> <peer>`, resumable, relay-capable, ACL-gated; files land in a per-sender inbox (`overmesh inbox`).
 - **Exit nodes & subnet routers** — devices offer routes (`-advertise-routes`, `-advertise-exit-node`), admins approve them with one click in the web UI, and clients opt in with `overmesh exit-node <name>`. Kernel WireGuard recommended for dedicated exit nodes; `-mtu 1420` on known-good underlays; iperf3 bench harness included.
 - **Overlay DNS** — MagicDNS-style `<node>.<network>.mesh` names.
 - **Web-UI-first administration** — devices, setup keys, and **ACLs managed entirely through a visual rule builder in the web UI**, never through config files.
@@ -66,7 +66,7 @@ Go (server, daemon, CLI, relay) · wireguard-go + wgctrl · pion/stun + pion/ice
 | 3 | Embedded DERP-style relay + guaranteed TCP fallback + direct upgrade |
 | 4 | Overlay DNS + visual ACL builder in the web UI |
 | 5 | Exit nodes, subnet routers, web-UI route approval, MTU tuning, bench harness |
-| 6 | OverDrop file transfer + macOS menu bar app + packaging |
+| 6 | OverDrop file transfer + packaging (deb/rpm/docker/brew) + macOS menu bar scaffold |
 | 7 | OIDC SSO, roles, key rotation, audit log |
 | 8 | Windows client (WireGuardNT) |
 | 9 | iOS + Android (gomobile + netstack) |

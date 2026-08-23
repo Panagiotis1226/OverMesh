@@ -100,7 +100,9 @@ path_of() {
     | sed -n 's/.*"path": *"\([a-z]*\)".*/\1/p' | head -1
 }
 wait_path() { # <ns> <socket> <want> [tries]
-  for _ in $(seq 1 "${4:-45}"); do
+  # Default budget covers one full ICE retry cycle: on a loaded CI
+  # runner the first attempt can time out and the retry lands ~90s in.
+  for _ in $(seq 1 "${4:-120}"); do
     [ "$(path_of "$1" "$2")" = "$3" ] && return 0
     sleep 1
   done

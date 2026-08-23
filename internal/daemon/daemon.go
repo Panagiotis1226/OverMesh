@@ -140,12 +140,15 @@ func (d *Daemon) dial(server string) (*grpc.ClientConn, error) {
 	}
 	return grpc.NewClient(server,
 		grpc.WithTransportCredentials(creds),
-		// Detect dead connections fast: after roaming (new local
-		// address) the old TCP conn silently blackholes, and without
-		// keepalives the netmap/signal streams would hang for minutes.
+		// Detect dead connections: after roaming (new local address)
+		// the old TCP conn silently blackholes, and without keepalives
+		// the netmap/signal streams would hang for minutes. The timeout
+		// must tolerate a busy peer, though — an overloaded machine
+		// that answers late is not a dead path, and tearing the streams
+		// down mid-ICE costs a full retry cycle.
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:                10 * time.Second,
-			Timeout:             5 * time.Second,
+			Time:                15 * time.Second,
+			Timeout:             15 * time.Second,
 			PermitWithoutStream: true,
 		}),
 	)

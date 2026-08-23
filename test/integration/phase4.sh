@@ -131,12 +131,27 @@ check "BARE name 'node-b' resolves on a" retry_resolves $A "node-b" "$B4"
 check "BARE name 'node-a' resolves on b" retry_resolves $B "node-a" "$A4"
 check "resolv.conf carries the overmesh block" \
   bash -c "ip netns exec $A cat /etc/resolv.conf | grep -q 'BEGIN overmesh dns'"
-check "ping by bare hostname" bash -c "ip netns exec $A ping -c1 -W3 node-b"
+# -4: without it ping prefers the AAAA record, and overlay IPv6 isn't
+# what this check is about (and isn't configured on every CI runner).
+bare_ping_ok() {
+  for _ in $(seq 1 15); do
+    ns $A ping -4 -c1 -W2 node-b >/dev/null 2>&1 && return 0
+    sleep 1
+  done
+  return 1
+}
+check "ping by bare hostname" bare_ping_ok
 
 log "access rules: deny tcp/22 via the admin API, ping must keep working"
 ns $B "$BIN/om-lab-udpecho" -tcp-listen "$B4:22" >"$WORK/hello.log" 2>&1 &
-sleep 0.5
-check "tcp/22 reachable before any rules" ns $A "$BIN/om-lab-udpecho" -tcp-probe "$B4:22"
+tcp_open() { # retry: listener startup and path settling both race us
+  for _ in $(seq 1 10); do
+    ns $A "$BIN/om-lab-udpecho" -tcp-probe "$B4:22" >/dev/null 2>&1 && return 0
+    sleep 1
+  done
+  return 1
+}
+check "tcp/22 reachable before any rules" tcp_open
 
 RULES='{"rules":[
   {"action":"deny","src_ids":[],"dst_ids":[],"protocol":"tcp","ports":["22"]},

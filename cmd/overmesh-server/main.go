@@ -146,7 +146,7 @@ func run(cfg config) error {
 	if err != nil {
 		return fmt.Errorf("grpc listen: %w", err)
 	}
-	// Clients ping every ~10s to detect dead paths after roaming; the
+	// Clients ping every ~15s to detect dead paths after roaming; the
 	// default enforcement (5 min) would GOAWAY them for it.
 	grpcOpts := []grpc.ServerOption{
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{

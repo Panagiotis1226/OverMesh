@@ -5,6 +5,9 @@
 // OnNetMap callback like an iOS packet-tunnel provider would.
 //
 // linux-only test scaffolding; not shipped.
+
+//go:build linux
+
 package main
 
 import (

@@ -32,7 +32,7 @@ Guiding decisions:
 | Windows (later) | **WireGuardNT kernel driver + Go daemon + tray app** | WireGuardNT is the fastest Windows data plane |
 | iOS/Android (later) | **gomobile-built core (netstack mode) + NetworkExtension / VpnService shells** | Reuses the entire Go engine; this is exactly how Tailscale/NetBird ship mobile |
 
-Licensing: all dependencies are MIT/BSD/Apache-2; OverMesh's own license (BSD-3 vs AGPL) to be decided before public release.
+Licensing: all dependencies are MIT/BSD/Apache-2. OverMesh itself is **Apache 2.0 with the Commons Clause** (source-available: free to use, modify, self-host, and redistribute, but not to sell) — see `LICENSE`.
 
 ## Repository layout (monorepo)
 

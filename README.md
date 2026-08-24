@@ -49,6 +49,15 @@ Details, private-UI setups, monitoring, backup/restore:
 [`docs/OPERATIONS.md`](docs/OPERATIONS.md) · threat model:
 [`docs/SECURITY.md`](docs/SECURITY.md).
 
+## License
+
+**Apache 2.0 with the Commons Clause** ([`LICENSE`](LICENSE)): the
+source is public and free to use, modify, self-host, and redistribute —
+personally or inside a company — but **selling the software is not
+permitted** (including selling hosting or paid services whose value
+derives substantially from it). Because of that restriction this is
+formally "source-available" rather than OSI open source.
+
 ## What it will do
 
 - **WireGuard data plane** — kernel WireGuard on Linux for maximum throughput, wireguard-go/utun on macOS, WireGuardNT on Windows (later), gVisor netstack on mobile (later).

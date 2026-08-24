@@ -2,21 +2,32 @@
 #
 #   git tag v0.1.0 && git push origin v0.1.0
 #
-# This builds the same artifacts CI already tests — per-platform binary
-# archives, deb/rpm packages, and the macOS app — and attaches them all
-# to a GitHub Release for that tag, so nobody hunts through Actions
-# artifacts.
+# …or from the Actions UI: Release -> Run workflow -> enter the tag
+# (it is created on main automatically if it doesn't exist yet).
+#
+# Either way this builds the same artifacts CI already tests —
+# per-platform binary archives, deb/rpm packages, and the macOS app —
+# and attaches them all to a GitHub Release for that tag, so nobody
+# hunts through Actions artifacts.
 name: Release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0); created on main if new"
+        required: true
 
 permissions:
   contents: write
 
 env:
   GO_VERSION: "1.26.0"
+  # The version being released: the pushed tag, or the dispatch input
+  # (which may not exist as a git tag yet at build time).
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   binaries:
@@ -44,7 +55,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
         run: |
-          VERSION=$(git describe --tags --always)
+          VERSION="$RELEASE_TAG"
           EXT=""
           [ "$GOOS" = windows ] && EXT=".exe"
           mkdir -p dist
@@ -81,7 +92,7 @@ jobs:
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.41.1
       - name: Build packages
         run: |
-          VERSION=$(git describe --tags --always | sed 's/^v//')
+          VERSION="${RELEASE_TAG#v}"
           mkdir -p pkgout
           for arch in amd64 arm64; do
             mkdir -p dist
@@ -131,7 +142,7 @@ jobs:
           go version -m "$APP/Contents/MacOS/OverMesh" >/dev/null 2>&1 \
             && fail "app executable was overwritten by a Go binary" || true
           codesign --force --deep -s - "$APP"
-          VERSION=$(git describe --tags --always)
+          VERSION="$RELEASE_TAG"
           mkdir -p out
           ditto -c -k --keepParent "$APP" "out/OverMesh-macos-${VERSION#v}.zip"
         working-directory: clients/macos
@@ -154,6 +165,8 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          target_commitish: ${{ github.event_name == 'workflow_dispatch' && 'main' || '' }}
           files: assets/*
           generate_release_notes: true
           body: |

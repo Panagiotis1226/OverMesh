@@ -102,6 +102,19 @@ Go (server, daemon, CLI, relay) · wireguard-go + wgctrl · pion/stun + pion/ice
 
 Full details, exit tests per phase, and design rationale: [`docs/PLAN.md`](docs/PLAN.md).
 
+## TODO
+
+Known issues and planned improvements from real-world testing:
+
+1. **Fix OverDrop delivery visibility** — a file says "sent" but there is
+   no way to view or find it on the receiving side (reproduced macOS →
+   Debian Linux VM and vice-versa).
+2. **macOS app: make it Cmd+Tab switchable** — the app currently doesn't
+   appear in the Cmd+Tab app switcher at all.
+3. **macOS app: quitting the app should also stop `overmeshd`** — users
+   expect closing the app to shut everything down, not leave the daemon
+   running in the background for nothing.
+
 ## Development
 
 ```sh

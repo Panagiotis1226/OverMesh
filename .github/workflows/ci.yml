@@ -293,9 +293,15 @@ jobs:
           APP=build/Build/Products/Release/OverMesh.app
           fail() { echo "::error::$1 — bundle contents:"; find "$APP" -maxdepth 4 -print; exit 1; }
           [ -x "$APP/Contents/MacOS/overmeshd" ] || fail "overmeshd missing from bundle"
-          [ -x "$APP/Contents/MacOS/overmesh" ] || fail "overmesh CLI missing from bundle"
+          [ -x "$APP/Contents/MacOS/overmesh-cli" ] || fail "overmesh-cli missing from bundle"
           [ -f "$APP/Contents/Library/LaunchDaemons/com.overmesh.overmeshd.plist" ] || fail "LaunchDaemon plist missing"
           lipo -archs "$APP/Contents/MacOS/overmeshd" | grep -q arm64 || fail "overmeshd not universal"
+          # The GUI executable must be the Swift app, NOT a Go binary —
+          # a case-insensitive-FS name collision once overwrote it.
+          go version -m "$APP/Contents/MacOS/OverMesh" >/dev/null 2>&1 \
+            && fail "app executable was overwritten by a Go binary" || true
+          go version -m "$APP/Contents/MacOS/overmeshd" >/dev/null 2>&1 \
+            || fail "overmeshd is not a Go binary?"
           codesign --force --deep -s - "$APP"
           ditto -c -k --keepParent "$APP" OverMesh-macos.zip
         working-directory: clients/macos

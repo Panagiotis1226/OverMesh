@@ -51,9 +51,13 @@ targets:
           TMP="$DERIVED_FILE_DIR/gobin"
           mkdir -p "$TMP" "$OUT"
           cd "$REPO"
-          for tool in overmeshd overmesh; do
-            GOOS=darwin GOARCH=arm64 go build -o "$TMP/$tool-arm64" "./cmd/$tool"
-            GOOS=darwin GOARCH=amd64 go build -o "$TMP/$tool-amd64" "./cmd/$tool"
-            lipo -create -output "$OUT/$tool" "$TMP/$tool-arm64" "$TMP/$tool-amd64"
-          done
+          # The CLI embeds as "overmesh-cli": on the case-INsensitive
+          # macOS filesystem, "overmesh" would OVERWRITE the app's own
+          # "OverMesh" executable in the same directory.
+          GOOS=darwin GOARCH=arm64 go build -o "$TMP/overmeshd-arm64" ./cmd/overmeshd
+          GOOS=darwin GOARCH=amd64 go build -o "$TMP/overmeshd-amd64" ./cmd/overmeshd
+          lipo -create -output "$OUT/overmeshd" "$TMP/overmeshd-arm64" "$TMP/overmeshd-amd64"
+          GOOS=darwin GOARCH=arm64 go build -o "$TMP/cli-arm64" ./cmd/overmesh
+          GOOS=darwin GOARCH=amd64 go build -o "$TMP/cli-amd64" ./cmd/overmesh
+          lipo -create -output "$OUT/overmesh-cli" "$TMP/cli-arm64" "$TMP/cli-amd64"
           ls -la "$OUT"

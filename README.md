@@ -132,6 +132,14 @@ sudo test/lab/lab.sh up && sudo test/lab/lab.sh verify   # NAT lab (Linux)
 The iOS app (gomobile core + packet tunnel) builds on a Mac — see
 [`clients/ios/README.md`](clients/ios/README.md).
 
-Prebuilt binaries for linux/darwin × amd64/arm64 are attached to every CI
-run — GitHub → Actions → pick the latest run → Artifacts. The NAT lab is
-documented in [`test/lab/README.md`](test/lab/README.md).
+**Releases**: pushing a version tag publishes a GitHub Release with
+everything attached — per-platform binary archives, `.deb`/`.rpm`
+packages, and the macOS app:
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+Between releases, the same artifacts hang off every CI run (GitHub →
+Actions → latest run → Artifacts). The NAT lab is documented in
+[`test/lab/README.md`](test/lab/README.md).

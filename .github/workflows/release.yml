@@ -1,0 +1,165 @@
+# Cut a release by pushing a version tag:
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# This builds the same artifacts CI already tests — per-platform binary
+# archives, deb/rpm packages, and the macOS app — and attaches them all
+# to a GitHub Release for that tag, so nobody hunts through Actions
+# artifacts.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: "1.26.0"
+
+jobs:
+  binaries:
+    name: Binaries ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: linux,   goarch: amd64 }
+          - { goos: linux,   goarch: arm64 }
+          - { goos: darwin,  goarch: amd64 }
+          - { goos: darwin,  goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build + archive
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          VERSION=$(git describe --tags --always)
+          EXT=""
+          [ "$GOOS" = windows ] && EXT=".exe"
+          mkdir -p dist
+          for b in overmesh-server overmeshd overmesh overmesh-relay; do
+            go build -trimpath \
+              -ldflags "-s -w -X github.com/panagiotis1226/overmesh/internal/version.Version=$VERSION" \
+              -o "dist/$b$EXT" "./cmd/$b"
+          done
+          cp README.md dist/
+          NAME="overmesh_${VERSION#v}_${GOOS}_${GOARCH}"
+          mkdir -p out
+          if [ "$GOOS" = windows ]; then
+            cp clients/windows/install.ps1 clients/windows/uninstall.ps1 clients/windows/README.md dist/
+            (cd dist && zip -q -r "../out/$NAME.zip" .)
+          else
+            tar -C dist -czf "out/$NAME.tar.gz" .
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-bin-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: out/
+
+  packages:
+    name: deb/rpm packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.41.1
+      - name: Build packages
+        run: |
+          VERSION=$(git describe --tags --always | sed 's/^v//')
+          mkdir -p pkgout
+          for arch in amd64 arm64; do
+            mkdir -p dist
+            for b in overmesh-server overmeshd overmesh overmesh-relay; do
+              GOOS=linux GOARCH=$arch CGO_ENABLED=0 go build -trimpath \
+                -ldflags "-s -w -X github.com/panagiotis1226/overmesh/internal/version.Version=$VERSION" \
+                -o "dist/$b" "./cmd/$b"
+            done
+            for fmt in deb rpm; do
+              VERSION=$VERSION GOARCH=$arch nfpm package -f packaging/nfpm/nfpm.yaml -p $fmt -t pkgout/
+              VERSION=$VERSION GOARCH=$arch nfpm package -f packaging/nfpm/nfpm-server.yaml -p $fmt -t pkgout/
+            done
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-packages
+          path: pkgout/
+
+  macos-app:
+    name: macOS app
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+        working-directory: clients/macos
+      - name: Build (Release, embeds overmeshd + overmesh-cli)
+        run: |
+          xcodebuild -project OverMesh.xcodeproj -scheme OverMesh \
+            -configuration Release -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO build
+        working-directory: clients/macos
+      - name: Verify bundle, ad-hoc sign, zip
+        run: |
+          APP=build/Build/Products/Release/OverMesh.app
+          fail() { echo "::error::$1"; exit 1; }
+          [ -x "$APP/Contents/MacOS/overmeshd" ] || fail "overmeshd missing from bundle"
+          [ -x "$APP/Contents/MacOS/overmesh-cli" ] || fail "overmesh-cli missing from bundle"
+          [ -f "$APP/Contents/Library/LaunchDaemons/com.overmesh.overmeshd.plist" ] || fail "LaunchDaemon plist missing"
+          go version -m "$APP/Contents/MacOS/OverMesh" >/dev/null 2>&1 \
+            && fail "app executable was overwritten by a Go binary" || true
+          codesign --force --deep -s - "$APP"
+          VERSION=$(git describe --tags --always)
+          mkdir -p out
+          ditto -c -k --keepParent "$APP" "out/OverMesh-macos-${VERSION#v}.zip"
+        working-directory: clients/macos
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos-app
+          path: clients/macos/out/
+
+  release:
+    name: Publish GitHub Release
+    needs: [binaries, packages, macos-app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: List assets
+        run: ls -la assets/
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: assets/*
+          generate_release_notes: true
+          body: |
+            Self-hosted WireGuard mesh VPN. Downloads:
+
+            - **Servers/Linux nodes**: `overmesh_*_linux_*.tar.gz`, or the `.deb`/`.rpm` packages
+            - **macOS**: `OverMesh-macos-*.zip` — the menu bar app with the daemon built in (move to /Applications, clear quarantine per `clients/macos/README.md`)
+            - **Windows**: `overmesh_*_windows_*.zip` — binaries + `install.ps1`
+            - Open ports on the server: **41641/tcp, 3478/udp, 41643/tcp**

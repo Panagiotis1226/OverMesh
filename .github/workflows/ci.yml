@@ -291,10 +291,11 @@ jobs:
       - name: Verify bundle, ad-hoc sign, zip
         run: |
           APP=build/Build/Products/Release/OverMesh.app
-          test -x "$APP/Contents/MacOS/overmeshd"
-          test -x "$APP/Contents/MacOS/overmesh"
-          test -f "$APP/Contents/Library/LaunchDaemons/com.overmesh.overmeshd.plist"
-          lipo -archs "$APP/Contents/MacOS/overmeshd" | grep -q arm64
+          fail() { echo "::error::$1 — bundle contents:"; find "$APP" -maxdepth 4 -print; exit 1; }
+          [ -x "$APP/Contents/MacOS/overmeshd" ] || fail "overmeshd missing from bundle"
+          [ -x "$APP/Contents/MacOS/overmesh" ] || fail "overmesh CLI missing from bundle"
+          [ -f "$APP/Contents/Library/LaunchDaemons/com.overmesh.overmeshd.plist" ] || fail "LaunchDaemon plist missing"
+          lipo -archs "$APP/Contents/MacOS/overmeshd" | grep -q arm64 || fail "overmeshd not universal"
           codesign --force --deep -s - "$APP"
           ditto -c -k --keepParent "$APP" OverMesh-macos.zip
         working-directory: clients/macos

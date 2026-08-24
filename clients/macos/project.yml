@@ -23,6 +23,13 @@ targets:
       - path: OverMesh
         excludes:
           - com.overmesh.overmeshd.plist
+      # The LaunchDaemon definition ships inside the bundle where
+      # SMAppService expects it.
+      - path: OverMesh/com.overmesh.overmeshd.plist
+        buildPhase:
+          copyFiles:
+            destination: wrapper
+            subpath: Contents/Library/LaunchDaemons
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.overmesh.OverMeshMac
@@ -37,7 +44,7 @@ targets:
     postCompileScripts:
       - name: Build & embed overmeshd + overmesh (universal)
         script: |
-          set -euo pipefail
+          set -euxo pipefail
           export PATH="$PATH:/usr/local/bin:/opt/homebrew/bin:$HOME/go/bin"
           REPO="$SRCROOT/../.."
           OUT="$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH"
@@ -49,8 +56,4 @@ targets:
             GOOS=darwin GOARCH=amd64 go build -o "$TMP/$tool-amd64" "./cmd/$tool"
             lipo -create -output "$OUT/$tool" "$TMP/$tool-arm64" "$TMP/$tool-amd64"
           done
-    copyFiles:
-      - destination: wrapper
-        subpath: Contents/Library/LaunchDaemons
-        files:
-          - OverMesh/com.overmesh.overmeshd.plist
+          ls -la "$OUT"

@@ -253,7 +253,12 @@ func (d *Daemon) Up(cfg UpConfig) error {
 	if cfg.ExitNode != "" && runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		return fmt.Errorf("using an exit node is only supported on Linux and macOS for now")
 	}
+	// A bare hostname means the default coordination port — typing
+	// ":41641" by hand is the #1 first-join stumble.
 	server := cfg.Server
+	if _, _, err := net.SplitHostPort(server); err != nil && !strings.Contains(server, ":") {
+		server = net.JoinHostPort(server, "41641")
+	}
 
 	// Effective TLS: an explicit request wins; otherwise keep the last
 	// choice for this server, falling back to the daemon's -tls flag

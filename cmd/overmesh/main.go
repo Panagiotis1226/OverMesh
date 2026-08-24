@@ -142,7 +142,7 @@ func cmdUp(args []string) error {
 	socket := fs.String("socket", daemon.DefaultSocketPath(), "daemon control socket")
 	advRoutes := fs.String("advertise-routes", "", "comma-separated CIDRs to offer as a subnet router")
 	advExit := fs.Bool("advertise-exit-node", false, "offer to route ALL mesh traffic to the internet")
-	exitNode := fs.String("exit-node", "", "send all traffic through this peer (Linux)")
+	exitNode := fs.String("exit-node", "", "send all traffic through this peer (Linux/macOS)")
 	useTLS := fs.Bool("tls", false, "connect to the control plane over TLS (omit to keep the last choice)")
 	_ = fs.Parse(args)
 	if *server == "" {

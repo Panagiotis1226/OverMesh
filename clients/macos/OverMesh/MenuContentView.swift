@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ServiceManagement
 import UniformTypeIdentifiers
 
 struct MenuContentView: View {
@@ -83,15 +84,7 @@ struct MenuContentView: View {
     }
 
     private var daemonHelp: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("overmeshd is not reachable", systemImage: "exclamationmark.triangle")
-                .font(.callout)
-            Text("Start the daemon with a group-accessible socket:")
-                .font(.caption).foregroundStyle(.secondary)
-            Text("sudo overmeshd -socket-group admin")
-                .font(.system(.caption, design: .monospaced))
-                .textSelection(.enabled)
-        }
+        DaemonSetupView(svc: app.daemonSvc)
     }
 
     private var selfInfo: some View {
@@ -233,6 +226,45 @@ struct MenuContentView: View {
             Button("Quit") { NSApp.terminate(nil) }
         }
         .font(.callout)
+    }
+}
+
+// First-run setup: installs the bundled overmeshd as a launchd daemon
+// through SMAppService — one click plus one approval in System
+// Settings; no Terminal.
+struct DaemonSetupView: View {
+    @ObservedObject var svc: DaemonManager
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("OverMesh service is not running", systemImage: "exclamationmark.triangle")
+                .font(.callout)
+            if !svc.inApplications {
+                Text("Move OverMesh.app into /Applications first — macOS only allows background services from there — then reopen it.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                switch svc.status {
+                case .enabled:
+                    Text("Service installed — starting up… (a few seconds on first run)")
+                        .font(.caption).foregroundStyle(.secondary)
+                case .requiresApproval:
+                    Text("Approve OverMesh under Login Items & Extensions → Allow in Background.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Open System Settings") {
+                        SMAppService.openSystemSettingsLoginItems()
+                    }
+                default:
+                    Text("Install the bundled overmeshd as a background service (runs as root; you'll approve it once in System Settings).")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Install OverMesh Service") { svc.install() }
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+            if let err = svc.lastError {
+                Text(err).font(.caption).foregroundStyle(.red)
+            }
+        }
+        .onAppear { svc.refresh() }
     }
 }
 

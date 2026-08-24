@@ -250,8 +250,8 @@ func (d *Daemon) Up(cfg UpConfig) error {
 	if d.cancel != nil {
 		return fmt.Errorf("already up (overmesh down first)")
 	}
-	if cfg.ExitNode != "" && runtime.GOOS != "linux" {
-		return fmt.Errorf("using an exit node is only supported on Linux for now")
+	if cfg.ExitNode != "" && runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		return fmt.Errorf("using an exit node is only supported on Linux and macOS for now")
 	}
 	server := cfg.Server
 
@@ -706,6 +706,9 @@ func (d *Daemon) applyRoutes(nm *overmeshv1.NetMap, eng wgengine.Engine) {
 	if ec != nil {
 		switch {
 		case exitID != 0:
+			// Loop protection first (macOS routes the daemon's own
+			// flows via host routes; Linux uses fwmark and ignores it).
+			ec.SetBypassHosts(d.exitBypassHosts())
 			if err := ec.Apply(eng.IfName(), exitV6); err != nil {
 				log.Printf("daemon: exit-node routing: %v", err)
 			}
@@ -716,6 +719,65 @@ func (d *Daemon) applyRoutes(nm *overmeshv1.NetMap, eng wgengine.Engine) {
 			}
 		}
 	}
+}
+
+// exitBypassHosts collects every underlay address the daemon itself
+// talks to — control server, relays, peer WireGuard endpoints — so
+// exit-node routing can exempt them from the tunnel.
+func (d *Daemon) exitBypassHosts() []netip.Addr {
+	d.mu.Lock()
+	var hosts []string
+	if h, _, err := net.SplitHostPort(d.state.Server); err == nil {
+		hosts = append(hosts, h)
+	}
+	for _, r := range d.lastRelays {
+		if u, err := url.Parse(r); err == nil && u.Hostname() != "" {
+			hosts = append(hosts, u.Hostname())
+		}
+	}
+	var addrs []netip.Addr
+	for _, pi := range d.peers {
+		if pi.pathEP.IsValid() {
+			addrs = append(addrs, pi.pathEP.Addr())
+		}
+		for _, ep := range pi.staticEPs {
+			if h, _, err := net.SplitHostPort(ep); err == nil {
+				if ip, err := netip.ParseAddr(h); err == nil {
+					addrs = append(addrs, ip)
+				}
+			}
+		}
+	}
+	d.mu.Unlock()
+
+	// Resolve names outside the lock; overlay addresses never belong
+	// in the bypass set (they SHOULD ride the tunnel).
+	seen := make(map[netip.Addr]bool)
+	var out []netip.Addr
+	add := func(ip netip.Addr) {
+		ip = ip.Unmap()
+		if !seen[ip] {
+			seen[ip] = true
+			out = append(out, ip)
+		}
+	}
+	for _, h := range hosts {
+		if ip, err := netip.ParseAddr(h); err == nil {
+			add(ip)
+			continue
+		}
+		if ips, err := net.LookupIP(h); err == nil {
+			for _, ip := range ips {
+				if a, ok := netip.AddrFromSlice(ip); ok {
+					add(a)
+				}
+			}
+		}
+	}
+	for _, a := range addrs {
+		add(a)
+	}
+	return out
 }
 
 // RotateNodeKey swaps the WireGuard node key live: new key on the
@@ -790,8 +852,8 @@ func (d *Daemon) RotateNodeKey() error {
 
 // SetExitNode switches the exit node at runtime ("" turns it off).
 func (d *Daemon) SetExitNode(name string) error {
-	if name != "" && runtime.GOOS != "linux" {
-		return fmt.Errorf("using an exit node is only supported on Linux for now")
+	if name != "" && runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		return fmt.Errorf("using an exit node is only supported on Linux and macOS for now")
 	}
 	d.mu.Lock()
 	if d.cancel == nil {
@@ -1056,6 +1118,16 @@ func (d *Daemon) onPathUpdate(u magicsock.PathUpdate) {
 		log.Printf("daemon: %s lost its direct path, falling back", host)
 	}
 	d.syncPeers()
+
+	// Endpoint changes move the daemon's own WireGuard flows: refresh
+	// the exit-node bypass set so they never loop through the tunnel
+	// (no-op on Linux; DNS in exitBypassHosts, so off this goroutine).
+	d.mu.Lock()
+	ec, exiting := d.exitCli, d.exitPeerID != 0
+	d.mu.Unlock()
+	if ec != nil && exiting {
+		go ec.SetBypassHosts(d.exitBypassHosts())
+	}
 }
 
 // refreshPeerStatusLocked rebuilds the status peer list. Held: d.mu.

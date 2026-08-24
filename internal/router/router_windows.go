@@ -49,7 +49,8 @@ func NewExitClient(logf Logf) *ExitClient {
 func (e *ExitClient) Apply(iface string, v6 bool) error {
 	return fmt.Errorf("using an exit node is not supported on Windows yet")
 }
-func (e *ExitClient) Remove() {}
+func (e *ExitClient) Remove()                       {}
+func (e *ExitClient) SetBypassHosts([]netip.Addr)   {}
 
 // RouteSync works on Windows: peers' approved subnet routes are added
 // as on-link routes on the mesh adapter via the IP Helper API.

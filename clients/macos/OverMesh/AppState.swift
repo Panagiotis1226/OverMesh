@@ -17,6 +17,7 @@ final class AppState: ObservableObject {
     @Published var lastError: String?
 
     let profiles = ProfileStore()
+    let daemonSvc = DaemonManager()
     private var timer: Timer?
 
     var client: ControlClient { ControlClient(socketPath: socketPath) }
@@ -44,6 +45,7 @@ final class AppState: ObservableObject {
         } catch {
             daemonReachable = false
             status = nil
+            daemonSvc.refresh()
             return
         }
         transfers = (try? await client.get("/transfers", as: TransfersResponse.self).transfers) ?? transfers

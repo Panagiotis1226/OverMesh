@@ -1,5 +1,9 @@
 # XcodeGen spec for the OverMesh macOS menu bar app.
 # Generate with: xcodegen generate, then open OverMesh.xcodeproj.
+#
+# The app bundles overmeshd + overmesh (built by a run-script phase —
+# needs Go 1.26+ on PATH) and installs the daemon via SMAppService, so
+# end users never touch a terminal.
 name: OverMesh
 options:
   bundleIdPrefix: com.overmesh
@@ -9,11 +13,23 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     CODE_SIGN_STYLE: Automatic
+    # The Go build phase writes outside the project sandbox.
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
 targets:
   OverMesh:
     type: application
     platform: macOS
-    sources: [OverMesh]
+    sources:
+      - path: OverMesh
+        excludes:
+          - com.overmesh.overmeshd.plist
+      # The LaunchDaemon definition ships inside the bundle where
+      # SMAppService expects it.
+      - path: OverMesh/com.overmesh.overmeshd.plist
+        buildPhase:
+          copyFiles:
+            destination: wrapper
+            subpath: Contents/Library/LaunchDaemons
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.overmesh.OverMeshMac
@@ -25,3 +41,19 @@ targets:
       properties:
         CFBundleDisplayName: OverMesh
         LSUIElement: true # menu bar only, no Dock icon
+    postCompileScripts:
+      - name: Build & embed overmeshd + overmesh (universal)
+        script: |
+          set -euxo pipefail
+          export PATH="$PATH:/usr/local/bin:/opt/homebrew/bin:$HOME/go/bin"
+          REPO="$SRCROOT/../.."
+          OUT="$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH"
+          TMP="$DERIVED_FILE_DIR/gobin"
+          mkdir -p "$TMP" "$OUT"
+          cd "$REPO"
+          for tool in overmeshd overmesh; do
+            GOOS=darwin GOARCH=arm64 go build -o "$TMP/$tool-arm64" "./cmd/$tool"
+            GOOS=darwin GOARCH=amd64 go build -o "$TMP/$tool-amd64" "./cmd/$tool"
+            lipo -create -output "$OUT/$tool" "$TMP/$tool-arm64" "$TMP/$tool-amd64"
+          done
+          ls -la "$OUT"

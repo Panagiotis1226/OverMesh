@@ -5,10 +5,14 @@
 # …or from the Actions UI: Release -> Run workflow -> enter the tag
 # (it is created on main automatically if it doesn't exist yet).
 #
-# Either way this builds the same artifacts CI already tests —
-# per-platform binary archives, deb/rpm packages, and the macOS app —
-# and attaches them all to a GitHub Release for that tag, so nobody
-# hunts through Actions artifacts.
+# Publishes exactly THREE downloads, one per platform, so nobody has
+# to guess which file is for their machine:
+#
+#   OverMesh-<ver>-macOS.zip    the menu bar app (daemon + CLI inside)
+#   OverMesh-<ver>-Linux.zip    binaries (amd64+arm64) + deb/rpm packages
+#   OverMesh-<ver>-Windows.zip  binaries (amd64+arm64) + install scripts
+#
+# Re-running for an existing tag REPLACES that release's assets.
 name: Release
 
 on:
@@ -38,8 +42,6 @@ jobs:
         include:
           - { goos: linux,   goarch: amd64 }
           - { goos: linux,   goarch: arm64 }
-          - { goos: darwin,  goarch: amd64 }
-          - { goos: darwin,  goarch: arm64 }
           - { goos: windows, goarch: amd64 }
           - { goos: windows, goarch: arm64 }
     steps:
@@ -49,7 +51,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-      - name: Build + archive
+      - name: Build
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -64,19 +66,13 @@ jobs:
               -ldflags "-s -w -X github.com/panagiotis1226/overmesh/internal/version.Version=$VERSION" \
               -o "dist/$b$EXT" "./cmd/$b"
           done
-          cp README.md dist/
-          NAME="overmesh_${VERSION#v}_${GOOS}_${GOARCH}"
-          mkdir -p out
           if [ "$GOOS" = windows ]; then
             cp clients/windows/install.ps1 clients/windows/uninstall.ps1 clients/windows/README.md dist/
-            (cd dist && zip -q -r "../out/$NAME.zip" .)
-          else
-            tar -C dist -czf "out/$NAME.tar.gz" .
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: release-bin-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: out/
+          name: bin-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/
 
   packages:
     name: deb/rpm packages
@@ -108,7 +104,7 @@ jobs:
           done
       - uses: actions/upload-artifact@v4
         with:
-          name: release-packages
+          name: packages
           path: pkgout/
 
   macos-app:
@@ -142,13 +138,12 @@ jobs:
           go version -m "$APP/Contents/MacOS/OverMesh" >/dev/null 2>&1 \
             && fail "app executable was overwritten by a Go binary" || true
           codesign --force --deep -s - "$APP"
-          VERSION="$RELEASE_TAG"
           mkdir -p out
-          ditto -c -k --keepParent "$APP" "out/OverMesh-macos-${VERSION#v}.zip"
+          ditto -c -k --keepParent "$APP" "out/OverMesh-${RELEASE_TAG#v}-macOS.zip"
         working-directory: clients/macos
       - uses: actions/upload-artifact@v4
         with:
-          name: release-macos-app
+          name: macos-app
           path: clients/macos/out/
 
   release:
@@ -156,23 +151,86 @@ jobs:
     needs: [binaries, packages, macos-app]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: assets
-          merge-multiple: true
-      - name: List assets
-        run: ls -la assets/
+      - name: Assemble one download per platform
+        run: |
+          V="${RELEASE_TAG#v}"
+          mkdir -p out
+
+          # --- Linux: binaries per arch + all packages + a pointer ---
+          L="bundle/OverMesh-$V-Linux"
+          mkdir -p "$L/amd64" "$L/arm64" "$L/packages"
+          cp assets/bin-linux-amd64/* "$L/amd64/"
+          cp assets/bin-linux-arm64/* "$L/arm64/"
+          cp assets/packages/*        "$L/packages/"
+          cp LICENSE README.md "$L/"
+          cat > "$L/README.txt" <<'EOF'
+          OverMesh for Linux — pick ONE of these:
+
+          Debian/Ubuntu (recommended):
+            sudo apt install ./packages/overmesh_*_amd64.deb        # a device
+            sudo apt install ./packages/overmesh-server_*_amd64.deb # the server
+            (use _arm64.deb on ARM machines, e.g. Raspberry Pi)
+
+          Fedora/RHEL: the matching .rpm files in packages/
+
+          Any other distro: raw binaries in amd64/ or arm64/
+            sudo ./overmeshd &            # on devices
+            sudo ./overmesh up -server <your-server> -key sk-...
+
+          Server firewall: open 41641/tcp, 3478/udp, 41643/tcp.
+          EOF
+          (cd bundle && zip -qr "../out/OverMesh-$V-Linux.zip" "OverMesh-$V-Linux")
+
+          # --- Windows: binaries per arch + install scripts ---
+          W="bundle/OverMesh-$V-Windows"
+          mkdir -p "$W/amd64" "$W/arm64"
+          cp assets/bin-windows-amd64/* "$W/amd64/"
+          cp assets/bin-windows-arm64/* "$W/arm64/"
+          cp LICENSE "$W/"
+          cat > "$W/README.txt" <<'EOF'
+          OverMesh for Windows
+
+          1. Open PowerShell as Administrator in the amd64 folder
+             (arm64 on ARM devices like Surface Pro X).
+          2. .\install.ps1        (installs the service + firewall rule)
+          3. overmesh up -server <your-server> -key sk-...
+          EOF
+          (cd bundle && zip -qr "../out/OverMesh-$V-Windows.zip" "OverMesh-$V-Windows")
+
+          # --- macOS: the app IS the bundle (daemon + CLI inside) ---
+          cp assets/macos-app/OverMesh-*-macOS.zip out/
+
+          ls -la out/
+      - name: Replace assets on re-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' |
+            while read -r a; do
+              [ -n "$a" ] && gh release delete-asset "$RELEASE_TAG" "$a" --repo "$GITHUB_REPOSITORY" -y
+            done
+          fi
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           target_commitish: ${{ github.event_name == 'workflow_dispatch' && 'main' || '' }}
-          files: assets/*
+          files: out/*
           generate_release_notes: true
           body: |
-            Self-hosted WireGuard mesh VPN. Downloads:
+            Self-hosted WireGuard mesh VPN.
 
-            - **Servers/Linux nodes**: `overmesh_*_linux_*.tar.gz`, or the `.deb`/`.rpm` packages
-            - **macOS**: `OverMesh-macos-*.zip` — the menu bar app with the daemon built in (move to /Applications, clear quarantine per `clients/macos/README.md`)
-            - **Windows**: `overmesh_*_windows_*.zip` — binaries + `install.ps1`
-            - Open ports on the server: **41641/tcp, 3478/udp, 41643/tcp**
+            ## Which file do I need?
+
+            | Your machine | Download |
+            |---|---|
+            | **Mac** | `OverMesh-…-macOS.zip` — the menu bar app, daemon included. Move to /Applications, then `xattr -dr com.apple.quarantine /Applications/OverMesh.app`, open, click *Install OverMesh Service*. |
+            | **Linux** (server or device) | `OverMesh-…-Linux.zip` — deb/rpm packages and raw binaries for amd64 + arm64; see README.txt inside. |
+            | **Windows** | `OverMesh-…-Windows.zip` — run `install.ps1` from the folder matching your CPU; see README.txt inside. |
+
+            Server firewall: open **41641/tcp, 3478/udp, 41643/tcp**.

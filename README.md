@@ -106,11 +106,14 @@ Full details, exit tests per phase, and design rationale: [`docs/PLAN.md`](docs/
 
 Known issues and planned improvements from real-world testing:
 
-1. **Fix OverDrop inbox discoverability** — delivery itself works (the
-   file lands in `/var/lib/overmesh/overdrop/<sender>/`), but the macOS
-   app's "Open Folder" button doesn't open that location, so received
-   files are effectively invisible without the terminal (reproduced
-   macOS ↔ Debian Linux VM).
+1. **Fix OverDrop, two distinct failures** (found testing macOS ↔ Debian
+   Linux VM):
+   - Sending FROM the macOS app TO Linux: the app reports the transfer
+     as sent/done, but the file never appears on the Linux receiver.
+   - Receiving ON macOS works (the file lands in
+     `/var/lib/overmesh/overdrop/<sender>/`), but the app's
+     "Open Folder" button doesn't open that location, so received files
+     are invisible without the terminal.
 2. **macOS app: make it Cmd+Tab switchable** — the app currently doesn't
    appear in the Cmd+Tab app switcher at all.
 3. **macOS app: quitting the app should also stop `overmeshd`** — users

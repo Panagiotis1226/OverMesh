@@ -19,6 +19,10 @@ type State struct {
 	NodePrivateHex    string `json:"node_private_hex"`
 	Server            string `json:"server,omitempty"`
 	DesiredUp         bool   `json:"desired_up,omitempty"`
+	// UseTLS: connect to Server over TLS. Per-connection so a GUI can
+	// switch between TLS and plain-text (lab) servers without
+	// restarting the daemon.
+	UseTLS bool `json:"use_tls,omitempty"`
 	// AdvertiseRoutes are CIDRs this node offers to route for the mesh
 	// (0.0.0.0/0 + ::/0 = exit-node offer); re-sent on every register.
 	AdvertiseRoutes []string `json:"advertise_routes,omitempty"`

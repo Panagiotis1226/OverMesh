@@ -1,37 +1,59 @@
-# OverMeshBar (macOS menu bar app)
+# OverMesh for macOS
 
-A minimal menu bar companion for `overmeshd`: connection state at a
-glance, peer list with copy-IP, exit-node picker, "Send file…" via
-OverDrop, and one-click access to the OverDrop inbox.
+A SwiftUI **menu bar app** over the local `overmeshd` daemon:
 
-**Status: experimental.** It builds with Swift 5.9+ on macOS 13+, but
-it is not compiled in CI (CI has no macOS/Xcode toolchain for it yet),
-so treat it as a scaffold that tracks the CLI.
+- **Server profiles** — save several OverMesh servers (address, setup
+  key, TLS, routes) and switch between them from the menu bar; the
+  device keeps one identity, so a setup key is only needed the first
+  time it joins each server.
+- **Devices** — live peer list with online state, connection path
+  (direct / lan / relay) and RTT, copyable overlay IPs, and exit/router
+  badges.
+- **OverDrop** — send a file to any online device (paperplane button or
+  drag & drop onto the device row), watch progress live, and browse the
+  inbox of received files.
+- **Exit node** — pick any peer that offers exit (note: exit-node
+  *consumption* is currently implemented in the Linux daemon; the
+  picker surfaces the daemon's answer on other platforms).
+- **Subnet routing** — advertise LAN routes (or offer this Mac as an
+  exit node) per profile, with live approved/awaiting-approval status.
 
-## Setup
+The app is a thin UI: all networking lives in `overmeshd`, reached over
+its unix control socket.
 
-1. Put `overmeshd` and `overmesh` in `/usr/local/bin` (CI darwin
-   artifacts or a source build).
-2. Run the daemon with a group-accessible control socket, so the app
-   (running as your user) can drive it without sudo:
+## Requirements
 
-   ```sh
-   sudo overmeshd -socket-group admin &
-   sudo overmesh up -server <server>:41641 -key sk-...
-   ```
+- macOS 14+, Xcode 15+ (tested with Xcode 27), XcodeGen
+  (`brew install xcodegen`)
+- `overmeshd` installed and running with a group-accessible socket:
 
-   Your account must be in the `admin` group (macOS default for the
-   first user). Anyone in that group can control the mesh — that is
-   the tradeoff for a sudo-less UI.
+  ```sh
+  sudo overmeshd -socket-group admin
+  ```
 
-3. Build and run the app:
+  (`admin` is the default group of macOS administrator accounts;
+  members of the group get full control of the daemon.)
 
-   ```sh
-   cd clients/macos/OverMeshBar
-   swift build -c release
-   .build/release/OverMeshBar &
-   ```
+## Build
 
-The v0 app shells out to the `overmesh` CLI rather than speaking the
-control socket directly — one code path for humans and UI. A proper
-signed .app bundle with drag-and-drop lands with the packaging polish.
+```sh
+cd clients/macos
+xcodegen generate
+open OverMesh.xcodeproj   # select the OverMesh scheme, sign, Run
+```
+
+or from the command line:
+
+```sh
+xcodebuild -project OverMesh.xcodeproj -scheme OverMesh -configuration Release build
+```
+
+## First use
+
+1. Click the OverMesh icon in the menu bar → **Settings…** → add a
+   profile: name, `server:41641`, setup key from the web UI, TLS if
+   your server has it.
+2. **Connect**. The menu shows your overlay IP, the device list, and
+   OverDrop.
+3. Add more profiles to switch servers from the menu-bar header at any
+   time (switching disconnects from the current server first).

@@ -170,6 +170,9 @@ type Daemon struct {
 	// lastStun: resolved STUN servers from the latest netmap, kept for
 	// netcheck probes.
 	lastStun []string
+
+	// xfers tracks outbound OverDrop sends started via the control API.
+	xfers transfers
 }
 
 // New loads state and returns a Daemon (not yet connected).
@@ -200,7 +203,7 @@ func (d *Daemon) MaybeAutoUp() {
 
 func (d *Daemon) dial(server string) (*grpc.ClientConn, error) {
 	creds := insecure.NewCredentials()
-	if d.opts.UseTLS {
+	if d.state.UseTLS {
 		creds = credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})
 	}
 	// The daemon's own control traffic carries the socket mark so it
@@ -234,6 +237,9 @@ type UpConfig struct {
 	AdvertiseRoutes []string
 	// ExitNode: hostname of the peer to send all traffic through.
 	ExitNode string
+	// UseTLS: connect to Server over TLS. nil keeps the last choice
+	// for this server (or the daemon's -tls flag on first use).
+	UseTLS *bool
 }
 
 // Up joins (or rejoins) the mesh: register, bring up WireGuard +
@@ -248,6 +254,18 @@ func (d *Daemon) Up(cfg UpConfig) error {
 		return fmt.Errorf("using an exit node is only supported on Linux for now")
 	}
 	server := cfg.Server
+
+	// Effective TLS: an explicit request wins; otherwise keep the last
+	// choice for this server, falling back to the daemon's -tls flag
+	// (also the default for a server we haven't seen before).
+	useTLS := d.state.UseTLS || d.opts.UseTLS
+	if server != d.state.Server {
+		useTLS = d.opts.UseTLS
+	}
+	if cfg.UseTLS != nil {
+		useTLS = *cfg.UseTLS
+	}
+	d.state.UseTLS = useTLS
 
 	conn, err := d.dial(server)
 	if err != nil {

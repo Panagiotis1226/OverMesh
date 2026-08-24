@@ -135,6 +135,23 @@ check "received file has the right checksum" bash -c \
 check "overmesh inbox lists it on B" bash -c \
   "ip netns exec $B '$BIN/overmesh' inbox -socket '$WORK/b.sock' | grep -q notes.pdf"
 
+log "control-API drop (the GUI path): POST /drop, poll GET /transfers"
+head -c 2097152 /dev/urandom > "$WORK/gui.bin" # 2 MiB
+SUM_GUI=$(sha256sum "$WORK/gui.bin" | cut -d' ' -f1)
+check "POST /drop returns a transfer id" bash -c \
+  "curl -fsS --unix-socket '$WORK/a.sock' -X POST http://d/drop -d '{\"file\":\"$WORK/gui.bin\",\"peer\":\"node-b\"}' | grep -q '\"id\"'"
+gui_drop_done() {
+  for _ in $(seq 1 30); do
+    curl -fsS --unix-socket "$WORK/a.sock" http://d/transfers 2>/dev/null \
+      | grep -q '"state":"done"' && return 0
+    sleep 1
+  done
+  return 1
+}
+check "GET /transfers reports the drop done" gui_drop_done
+check "control-API-dropped file checksum matches" bash -c \
+  "sha256sum '$INBOX_B/node-a/gui.bin' | grep -q $SUM_GUI"
+
 log "interrupt + resume: kill the sender mid-transfer of a 400 MiB file"
 head -c 419430400 /dev/urandom > "$WORK/big.iso"
 SUM_BIG=$(sha256sum "$WORK/big.iso" | cut -d' ' -f1)

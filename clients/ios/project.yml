@@ -1,0 +1,58 @@
+# XcodeGen spec for the OverMesh iOS app + packet tunnel extension.
+# Generate with: xcodegen generate   (after build-ios.sh has produced
+# Mobilecore.xcframework in this directory).
+name: OverMesh
+options:
+  bundleIdPrefix: com.overmesh
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    CODE_SIGN_STYLE: Automatic
+    # Set your Apple developer team once here (or in Xcode's Signing
+    # pane after generating): DEVELOPMENT_TEAM: ABCDE12345
+targets:
+  OverMesh:
+    type: application
+    platform: iOS
+    sources: [OverMesh]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.overmesh.OverMesh
+    info:
+      path: OverMesh/Info.plist
+      properties:
+        CFBundleDisplayName: OverMesh
+        UILaunchScreen: {}
+    entitlements:
+      path: OverMesh/OverMesh.entitlements
+      properties:
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+    dependencies:
+      - target: PacketTunnel
+        embed: true
+  PacketTunnel:
+    type: app-extension
+    platform: iOS
+    sources: [PacketTunnel]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.overmesh.OverMesh.PacketTunnel
+    info:
+      path: PacketTunnel/Info.plist
+      properties:
+        CFBundleDisplayName: OverMesh Tunnel
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
+    entitlements:
+      path: PacketTunnel/PacketTunnel.entitlements
+      properties:
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+    dependencies:
+      # gomobile emits a static xcframework: link, don't embed.
+      - framework: Mobilecore.xcframework
+        embed: false

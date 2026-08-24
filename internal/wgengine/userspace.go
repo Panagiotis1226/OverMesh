@@ -22,7 +22,15 @@ type userspaceEngine struct {
 }
 
 func newUserspace(opts Options) (Engine, error) {
-	rawTun, err := tun.CreateTUN(tunName(opts.IfaceName), opts.mtu())
+	var rawTun tun.Device
+	var err error
+	if opts.TUNFD > 0 {
+		// Platform-provided tunnel (iOS packet tunnel, Android
+		// VpnService): wrap the fd; the app owns interface config.
+		rawTun, err = tunFromFD(opts.TUNFD, opts.mtu())
+	} else {
+		rawTun, err = tun.CreateTUN(tunName(opts.IfaceName), opts.mtu())
+	}
 	if err != nil {
 		return nil, fmt.Errorf("wgengine: create tun: %w", err)
 	}
@@ -52,9 +60,11 @@ func newUserspace(opts Options) (Engine, error) {
 		dev.Close()
 		return nil, fmt.Errorf("wgengine: device up: %w", err)
 	}
-	if err := configureInterface(name, opts.mtu(), opts.Addresses, opts.Routes, opts.Logf); err != nil {
-		dev.Close()
-		return nil, fmt.Errorf("wgengine: interface config: %w", err)
+	if opts.TUNFD <= 0 {
+		if err := configureInterface(name, opts.mtu(), opts.Addresses, opts.Routes, opts.Logf); err != nil {
+			dev.Close()
+			return nil, fmt.Errorf("wgengine: interface config: %w", err)
+		}
 	}
 	opts.Logf("wgengine: userspace WireGuard up on %s (port %d)", name, opts.ListenPort)
 	return &userspaceEngine{dev: dev, ftun: tundev, name: name}, nil

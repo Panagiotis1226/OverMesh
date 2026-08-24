@@ -56,6 +56,12 @@ type Options struct {
 	Routes     []netip.Prefix // overlay prefixes routed into the interface
 	Mode       string         // "auto", "kernel", "userspace"
 	MTU        int            // 0 = DefaultMTU
+	// TUNFD, when > 0, is a platform-provided tunnel file descriptor
+	// (iOS packet tunnel, Android VpnService). The engine wraps it
+	// instead of creating its own adapter and SKIPS all OS interface
+	// configuration — addresses, routes, and DNS are the platform
+	// app's job. Userspace engine only.
+	TUNFD int
 	// Bind, when set, replaces the default UDP socket of the userspace
 	// engine — magicsock injects its shared STUN/WG socket here. Ignored
 	// by the kernel engine.

@@ -31,11 +31,21 @@ func main() {
 		return
 	}
 
+	rs := relay.NewServer(log.Printf)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "ok overmesh-relay %s\n", version.Long())
 	})
-	mux.Handle(relay.UpgradePath, relay.NewServer(log.Printf).Handler())
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
+		st := rs.Stats()
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		fmt.Fprintf(w, "overmesh_build_info{version=%q} 1\n", version.Long())
+		fmt.Fprintf(w, "overmesh_relay_clients %d\n", st.Clients)
+		fmt.Fprintf(w, "overmesh_relay_frames_forwarded_total %d\n", st.FramesForwarded)
+		fmt.Fprintf(w, "overmesh_relay_bytes_forwarded_total %d\n", st.BytesForwarded)
+		fmt.Fprintf(w, "overmesh_relay_frames_dropped_total %d\n", st.FramesDropped)
+	})
+	mux.Handle(relay.UpgradePath, rs.Handler())
 
 	srv := &http.Server{
 		Addr:              *listen,

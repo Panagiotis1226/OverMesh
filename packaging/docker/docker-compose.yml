@@ -6,9 +6,10 @@
 # setup key, and join devices with:
 #   sudo overmesh up -server <host>:41641 -key sk-...
 #
-# For internet exposure put a TLS reverse proxy in front of 8080 (the
-# relay upgrade endpoint /relay is plain HTTP under the same port) and
-# pass -tls on the daemons, or mount certs and add
+# The web UI (8080) does NOT need to be public — nodes only use gRPC
+# (41641), STUN (3478/udp) and the relay (41643). Bind it to localhost
+# ("127.0.0.1:8080:8080") to keep admin access local-only. For internet
+# exposure put a TLS reverse proxy in front, or mount certs and add
 # -tls-cert/-tls-key to the command.
 services:
   overmesh-server:
@@ -20,9 +21,10 @@ services:
     command:
       - "-admin-password=${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}"
       - "-stun-advertise=${PUBLIC_HOST:?set PUBLIC_HOST in .env}:3478"
-      - "-relay-advertise=http://${PUBLIC_HOST}:8080/relay"
+      - "-relay-advertise=http://${PUBLIC_HOST}:41643/relay"
     ports:
-      - "8080:8080"        # web UI + API + relay
+      - "8080:8080"        # web UI + API (bind 127.0.0.1:8080:8080 for local-only admin)
+      - "41643:41643"      # OMR relay (TCP fallback path)
       - "41641:41641"      # gRPC coordination
       - "3478:3478/udp"    # STUN
     volumes:

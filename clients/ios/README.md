@@ -14,9 +14,13 @@ continuously tested.
 
 ## Requirements
 
-- macOS with Xcode 26+ (tested with Xcode 27 beta 5) and an Apple
-  Developer account (Network Extensions don't run in the simulator —
-  you need a real device).
+- macOS with Xcode 26+ (tested with Xcode 27 beta 5) and a **paid**
+  Apple Developer Program membership: the
+  `packet-tunnel-provider` entitlement is not granted to free personal
+  teams, and Network Extensions don't run in the simulator — running
+  on a real device requires the paid account. Without one you can
+  still compile everything (and the same core is fully exercised by
+  CI's Linux TUN-fd test).
 - Go 1.26+ (`brew install go` or https://go.dev/dl)
 - XcodeGen (`brew install xcodegen`)
 

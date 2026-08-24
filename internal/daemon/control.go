@@ -95,6 +95,9 @@ func (d *Daemon) ServeControl(socketPath, groupName string) error {
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, d.Status())
 	})
+	mux.HandleFunc("GET /netcheck", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, d.Netcheck())
+	})
 	mux.HandleFunc("POST /up", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Server          string   `json:"server"`

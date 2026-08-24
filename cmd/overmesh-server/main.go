@@ -45,8 +45,9 @@ func main() {
 	flag.StringVar(&cfg.stunAddr, "stun", ":3478", "UDP listen address for the embedded STUN server (empty disables)")
 	flag.StringVar(&cfg.stunAdvertise, "stun-advertise", "", "address nodes should use for STUN (default: control-plane host + stun port)")
 	flag.StringVar(&cfg.extraStun, "stun-extra", "", "comma-separated additional STUN servers to advertise")
-	flag.BoolVar(&cfg.relayEnabled, "relay", true, "serve the embedded OMR relay on the HTTP listener at /relay")
-	flag.StringVar(&cfg.relayAdvertise, "relay-advertise", "", "relay URL nodes should use (default: control-plane host + the HTTP port)")
+	flag.BoolVar(&cfg.relayEnabled, "relay", true, "serve the embedded OMR relay")
+	flag.StringVar(&cfg.relayListen, "relay-listen", ":41643", "dedicated HTTP listen address for the relay (kept separate from -http so the web UI can stay private, e.g. -http 127.0.0.1:8080)")
+	flag.StringVar(&cfg.relayAdvertise, "relay-advertise", "", "relay URL nodes should use (default: control-plane host + the relay port)")
 	flag.StringVar(&cfg.relayExtra, "relay-extra", "", "comma-separated additional relay URLs to advertise")
 	flag.StringVar(&cfg.dnsBase, "dns-domain", "mesh", "overlay DNS suffix: devices resolve as <name>.<network>.<suffix> and as bare names via search domains (empty disables)")
 	flag.StringVar(&cfg.stateDir, "state-dir", "overmesh-server-data", "directory for the database")
@@ -70,6 +71,7 @@ type config struct {
 	stunAddr, stunAdvertise string
 	extraStun               string
 	relayEnabled            bool
+	relayListen             string
 	relayAdvertise          string
 	relayExtra              string
 	dnsBase                 string
@@ -166,21 +168,36 @@ func run(cfg config) error {
 	})
 	adminapi.New(st, c, nw).Register(mux)
 
-	// Embedded OMR relay: shares this listener (and its TLS), so every
-	// self-hosted control plane is a relay too.
-	if cfg.relayEnabled {
-		mux.Handle(relay.UpgradePath, relay.NewServer(log.Printf).Handler())
+	// Embedded OMR relay on its own listener (sharing the TLS config),
+	// so every self-hosted control plane is a relay too. Deliberately
+	// NOT on the web-UI port: the relay must be reachable by every
+	// node, while the UI/API can stay private (-http 127.0.0.1:8080).
+	var relaySrv *http.Server
+	var relayCore *relay.Server
+	if cfg.relayEnabled && cfg.relayListen != "" {
+		relayCore = relay.NewServer(log.Printf)
+		relayMux := http.NewServeMux()
+		relayMux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprintf(w, "ok overmesh-relay %s\n", version.Long())
+		})
+		relayMux.Handle(relay.UpgradePath, relayCore.Handler())
+		relaySrv = &http.Server{
+			Addr:              cfg.relayListen,
+			Handler:           relayMux,
+			ReadHeaderTimeout: 10 * time.Second,
+			TLSConfig:         tlsConf,
+		}
 		advertise := cfg.relayAdvertise
 		if advertise == "" {
 			scheme := "http"
 			if tlsConf != nil {
 				scheme = "https"
 			}
-			_, port, _ := net.SplitHostPort(httpAddr)
+			_, port, _ := net.SplitHostPort(cfg.relayListen)
 			advertise = fmt.Sprintf("%s://:%s%s", scheme, port, relay.UpgradePath)
 		}
 		c.Relays = append(c.Relays, advertise)
-		log.Printf("overmesh-server: relay at %s (advertised as %q)", relay.UpgradePath, advertise)
+		log.Printf("overmesh-server: relay on %s at %s (advertised as %q)", cfg.relayListen, relay.UpgradePath, advertise)
 	}
 	if cfg.relayExtra != "" {
 		for _, r := range strings.Split(cfg.relayExtra, ",") {
@@ -189,6 +206,34 @@ func run(cfg config) error {
 			}
 		}
 	}
+
+	// Prometheus text-format metrics, deliberately on the PRIVATE web-UI
+	// listener (not the relay's): operational data stays off the
+	// internet-facing port.
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		fmt.Fprintf(w, "# HELP overmesh_build_info Build metadata.\n# TYPE overmesh_build_info gauge\n")
+		fmt.Fprintf(w, "overmesh_build_info{version=%q} 1\n", version.Long())
+		if nodes, err := st.NodesInNetwork(nw.ID); err == nil {
+			fmt.Fprintf(w, "# HELP overmesh_nodes Registered nodes.\n# TYPE overmesh_nodes gauge\n")
+			fmt.Fprintf(w, "overmesh_nodes %d\n", len(nodes))
+		}
+		fmt.Fprintf(w, "# HELP overmesh_nodes_online Nodes with an open netmap stream.\n# TYPE overmesh_nodes_online gauge\n")
+		fmt.Fprintf(w, "overmesh_nodes_online %d\n", c.OnlineCount())
+		fmt.Fprintf(w, "# HELP overmesh_netmap_pushes_total Netmaps pushed to subscribers.\n# TYPE overmesh_netmap_pushes_total counter\n")
+		fmt.Fprintf(w, "overmesh_netmap_pushes_total %d\n", c.NetmapPushes())
+		if relayCore != nil {
+			rs := relayCore.Stats()
+			fmt.Fprintf(w, "# HELP overmesh_relay_clients Connected relay clients.\n# TYPE overmesh_relay_clients gauge\n")
+			fmt.Fprintf(w, "overmesh_relay_clients %d\n", rs.Clients)
+			fmt.Fprintf(w, "# HELP overmesh_relay_frames_forwarded_total Frames forwarded by the relay.\n# TYPE overmesh_relay_frames_forwarded_total counter\n")
+			fmt.Fprintf(w, "overmesh_relay_frames_forwarded_total %d\n", rs.FramesForwarded)
+			fmt.Fprintf(w, "# HELP overmesh_relay_bytes_forwarded_total Payload bytes forwarded by the relay.\n# TYPE overmesh_relay_bytes_forwarded_total counter\n")
+			fmt.Fprintf(w, "overmesh_relay_bytes_forwarded_total %d\n", rs.BytesForwarded)
+			fmt.Fprintf(w, "# HELP overmesh_relay_frames_dropped_total Frames dropped on stalled clients.\n# TYPE overmesh_relay_frames_dropped_total counter\n")
+			fmt.Fprintf(w, "overmesh_relay_frames_dropped_total %d\n", rs.FramesDropped)
+		}
+	})
 
 	mux.Handle("/", webui.Handler())
 
@@ -203,11 +248,24 @@ func run(cfg config) error {
 	if tlsConf != nil {
 		scheme = "https"
 	}
-	errc := make(chan error, 2)
+	errc := make(chan error, 3)
 	go func() {
 		log.Printf("overmesh-server %s: gRPC coordination on %s (tls=%v)", version.Long(), grpcAddr, tlsConf != nil)
 		errc <- grpcSrv.Serve(grpcLis)
 	}()
+	if relaySrv != nil {
+		go func() {
+			var err error
+			if tlsConf != nil {
+				err = relaySrv.ListenAndServeTLS("", "")
+			} else {
+				err = relaySrv.ListenAndServe()
+			}
+			if !errors.Is(err, http.ErrServerClosed) {
+				errc <- err
+			}
+		}()
+	}
 	go func() {
 		log.Printf("overmesh-server %s: web UI + API on %s://%s (network %q, %s + %s)",
 			version.Long(), scheme, httpAddr, nw.Name, nw.V4Prefix, nw.V6Prefix)
@@ -231,6 +289,9 @@ func run(cfg config) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = httpSrv.Shutdown(shutdownCtx)
+	if relaySrv != nil {
+		_ = relaySrv.Shutdown(shutdownCtx)
+	}
 	grpcSrv.GracefulStop()
 	return nil
 }

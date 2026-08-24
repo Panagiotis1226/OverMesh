@@ -2,7 +2,7 @@
 
 A fully self-hostable **WireGuard-based overlay mesh VPN** — control plane included — in the Tailscale / NetBird class.
 
-> Status: **Phase 8 complete** — the **Windows client**. `overmeshd` runs as a Windows service on the userspace WireGuard data plane (Wintun adapter, the same driver Tailscale ships), configured through the IP Helper API: overlay addresses, routes, MTU, per-adapter DNS with the mesh suffix, and the global suffix search list for bare hostnames (restored on down). Install is one elevated `install.ps1` from the CI artifact (binaries + wintun.dll + service + firewall rule); join with the same `overmesh up` as everywhere else — status, ping, OverDrop, key rotation all work. CI now runs the full unit suite natively on a Windows runner plus a control-plane smoke. Phase 7 delivered local user accounts, roles, rotation, and the audit log. See [`docs/PLAN.md`](docs/PLAN.md).
+> Status: **Phase 10 in progress — hardening & operations**. The relay now has its **own listener (:41643)** so the web UI can stay local-only (`-http 127.0.0.1:8080`); Prometheus `/metrics` on server and relay; `overmesh netcheck` and `overmesh bugreport`; ops docs ([`docs/OPERATIONS.md`](docs/OPERATIONS.md), [`docs/SECURITY.md`](docs/SECURITY.md)); exit-tested: tunnels keep passing traffic through a `kill -9` of the control plane, and a backup/restore drill reconnects every node without re-enrolling. Phase 9 shipped the **iOS client** (gomobile core over the packet-tunnel fd, CI-proven on Linux; builds with Xcode 27). See [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Quickstart (LAN)
 
@@ -18,8 +18,24 @@ sudo ./overmesh status
 sudo ./overmesh ping <other-device>
 ```
 
-Phase 1 speaks to the control plane in the clear — use it on trusted
-networks; TLS + internet exposure arrive with Phase 2.
+For the internet: add `-tls-cert/-tls-key` (or a TLS reverse proxy),
+and keep the web UI private with `-http 127.0.0.1:8080` — nodes never
+need it.
+
+### Ports
+
+| Port | Proto | What | Open it? |
+|---|---|---|---|
+| 41641 | TCP | gRPC coordination (server) | **yes** — every node connects here |
+| 3478 | UDP | STUN (server) | **yes** for direct paths (relay still works without) |
+| 41643 | TCP | OMR relay, guaranteed fallback (server) | **yes** |
+| 8080 | TCP | web UI + API + metrics (server) | no — keep local/VPN-only |
+| 41642 | UDP | WireGuard on every node | no — outbound holepunching suffices |
+| 41645, 53 | TCP/UDP | OverDrop + mesh DNS on every node | never — they bind the overlay IP only |
+
+Details, private-UI setups, monitoring, backup/restore:
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md) · threat model:
+[`docs/SECURITY.md`](docs/SECURITY.md).
 
 ## What it will do
 

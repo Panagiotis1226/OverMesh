@@ -37,6 +37,8 @@ Usage:
   overmesh drop <file> <peer-hostname>            send a file (resumable)
   overmesh inbox                                  list received files
   overmesh rotate-key                             rotate the WireGuard node key
+  overmesh netcheck                               probe control plane, STUN, relays
+  overmesh bugreport                              print a diagnostic bundle
   overmesh version
 
 Routers and exit nodes must be approved in the web UI before they carry
@@ -72,6 +74,10 @@ func main() {
 		err = cmdInbox(args)
 	case "rotate-key":
 		err = cmdRotateKey(args)
+	case "netcheck":
+		err = cmdNetcheck(args)
+	case "bugreport":
+		err = cmdBugreport(args)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", cmd, usage)
 		os.Exit(2)

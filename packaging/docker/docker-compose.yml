@@ -6,11 +6,12 @@
 # setup key, and join devices with:
 #   sudo overmesh up -server <host>:41641 -key sk-...
 #
-# The web UI (8080) does NOT need to be public — nodes only use gRPC
-# (41641), STUN (3478/udp) and the relay (41643). Bind it to localhost
-# ("127.0.0.1:8080:8080") to keep admin access local-only. For internet
-# exposure put a TLS reverse proxy in front, or mount certs and add
-# -tls-cert/-tls-key to the command.
+# Web UI exposure is your choice — nodes only use gRPC (41641), STUN
+# (3478/udp) and the relay (41643), never the UI port. Leave it public
+# as below, publish it as "127.0.0.1:8080:8080" for host-local admin
+# only, or add "-ui-access=mesh" to the command so only devices inside
+# the VPN can open it. On the internet, mount certs and add
+# -tls-cert/-tls-key for HTTPS.
 services:
   overmesh-server:
     build:

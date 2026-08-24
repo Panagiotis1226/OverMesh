@@ -42,10 +42,27 @@ check_not() {
   fi
 }
 
+# `ip netns exec cmd` forks: $! is the wrapper, and killing it merely
+# ORPHANS the server (which keeps its listeners). Every server kill in
+# this script therefore targets the server's own cmdline.
+SRV_MATCH=""  # set once WORK exists
+kill_server() { # <signal: TERM|KILL>
+  pkill "-$1" -f "$SRV_MATCH" 2>/dev/null || true
+  [ -n "${SRV_PID:-}" ] && kill "-$1" "$SRV_PID" 2>/dev/null || true
+}
+server_gone() {
+  for _ in $(seq 1 40); do
+    pgrep -f "$SRV_MATCH" >/dev/null 2>&1 || return 0
+    sleep 0.5
+  done
+  return 1
+}
+
 OK=0
 cleanup() {
   set +e
   pkill -f "socket $WORK" 2>/dev/null
+  [ -n "$SRV_MATCH" ] && pkill -9 -f "$SRV_MATCH" 2>/dev/null
   [ -n "${SRV_PID:-}" ] && kill "$SRV_PID" 2>/dev/null
   for n in $SRV $A $B $NET; do ip netns del "$n" 2>/dev/null; done
   if [ "$OK" = 1 ]; then
@@ -61,6 +78,8 @@ trap cleanup EXIT
 for b in overmesh-server overmeshd overmesh; do
   [ -x "$BIN/$b" ] || { echo "missing $BIN/$b — run 'make build'"; exit 1; }
 done
+
+SRV_MATCH="state-dir $WORK/server"
 
 log "topology + control plane (web UI on localhost ONLY)"
 ip netns add $NET; ip netns add $SRV; ip netns add $A; ip netns add $B
@@ -80,8 +99,9 @@ for pair in "$SRV:$SRV_IP" "$A:$A_IP" "$B:$B_IP"; do
   i=$((i+1))
 done
 
-start_server() {
-  ns $SRV "$BIN/overmesh-server" -http "$UI" -grpc "$GRPC" -stun "$SRV_IP:3478" \
+start_server() { # <ui-access mode>
+  ns $SRV "$BIN/overmesh-server" -http ":8080" -ui-access "$1" \
+    -grpc "$GRPC" -stun "$SRV_IP:3478" \
     -relay-listen "$SRV_IP:$RELAY_PORT" \
     -state-dir "$WORK/server" -admin-password "$ADMIN_PW" \
     >>"$WORK/server.log" 2>&1 &
@@ -91,10 +111,10 @@ start_server() {
     sleep 0.2
   done
 }
-start_server
+start_server local
 check "server healthz on localhost" ns $SRV curl -fsS "http://$UI/healthz"
 
-log "privacy: UI is local-only, relay is public on its own port"
+log "-ui-access local: UI is machine-only, relay is public on its own port"
 check_not "web UI NOT reachable from the LAN" \
   ns $A curl -fsS -m 3 "http://$SRV_IP:8080/healthz"
 check "relay healthz reachable from the LAN on :$RELAY_PORT" \
@@ -149,8 +169,9 @@ check "bugreport contains status + netcheck" bash -c \
   "ip netns exec $A '$BIN/overmesh' bugreport -socket '$WORK/a.sock' | grep -q '== netcheck =='"
 
 log "control-plane outage: kill -9 the server, tunnels must keep working"
-kill -9 "$SRV_PID"
+kill_server KILL
 wait "$SRV_PID" 2>/dev/null || true
+check "server is actually dead" server_gone
 sleep 2
 check "a -> b ping DURING server outage" ping_ok $A "$B4" 5
 check "b -> a ping DURING server outage" ping_ok $B "$A4" 5
@@ -161,7 +182,7 @@ cp "$WORK/server/server.db"* "$WORK/backup/" 2>/dev/null
 rm -rf "$WORK/server"
 mkdir -p "$WORK/server"
 cp "$WORK/backup/"* "$WORK/server/"
-start_server
+start_server local
 check "restored server healthz" ns $SRV curl -fsS "http://$UI/healthz"
 ns $SRV curl -fsS -c "$WORK/cookies2" -X POST "http://$UI/api/login" \
   -d "{\"password\":\"$ADMIN_PW\"}" >/dev/null
@@ -178,6 +199,19 @@ check "both daemons reconnect after restore (no re-enroll)" devices_online
 check "a -> b still fine after restore" ping_ok $A "$B4"
 NEWKEY_COUNT=$(ns $SRV curl -fsS -b "$WORK/cookies2" "http://$UI/api/setupkeys" 2>/dev/null | grep -o '"key"' | wc -l)
 check "setup keys survived the restore" test "$NEWKEY_COUNT" -ge 1
+
+log "-ui-access mesh: overlay + local machine only"
+# SIGTERM shutdown is graceful-then-forced (~5s with live netmap
+# streams); a hung server here would mean broken systemd stops.
+kill_server TERM
+check "SIGTERM terminates the server despite live netmap streams" server_gone
+sleep 1
+start_server mesh
+check "mesh mode: local machine still allowed" ns $SRV curl -fsS "http://$UI/healthz"
+check_not "mesh mode: LAN (non-overlay) source gets 403" \
+  ns $A curl -fsS -m 3 "http://$SRV_IP:8080/healthz"
+check "mesh mode: rejection is a 403, not a dead port" bash -c \
+  "ip netns exec $A curl -sS -m 3 -o /dev/null -w '%{http_code}' 'http://$SRV_IP:8080/healthz' | grep -q 403"
 
 if [ $FAIL -gt 0 ]; then
   log "FAILED ($FAIL failures)"

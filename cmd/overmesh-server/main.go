@@ -16,6 +16,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -40,7 +41,8 @@ import (
 
 func main() {
 	var cfg config
-	flag.StringVar(&cfg.httpAddr, "http", ":8080", "HTTP listen address (web UI + admin API)")
+	flag.StringVar(&cfg.httpAddr, "http", ":8080", "HTTP listen address (web UI + admin API); see -ui-access for who may reach it")
+	flag.StringVar(&cfg.uiAccess, "ui-access", "public", "who can open the web UI/API: public (any interface), local (this machine only), mesh (only from OverMesh overlay IPs + this machine)")
 	flag.StringVar(&cfg.grpcAddr, "grpc", ":41641", "gRPC listen address for node coordination")
 	flag.StringVar(&cfg.stunAddr, "stun", ":3478", "UDP listen address for the embedded STUN server (empty disables)")
 	flag.StringVar(&cfg.stunAdvertise, "stun-advertise", "", "address nodes should use for STUN (default: control-plane host + stun port)")
@@ -68,6 +70,7 @@ func main() {
 
 type config struct {
 	httpAddr, grpcAddr      string
+	uiAccess                string
 	stunAddr, stunAdvertise string
 	extraStun               string
 	relayEnabled            bool
@@ -237,9 +240,27 @@ func run(cfg config) error {
 
 	mux.Handle("/", webui.Handler())
 
+	// -ui-access decides who can reach the web UI/API listener. Nodes
+	// never need it (they use gRPC + STUN + relay only), so anything
+	// but "public" costs nothing.
+	var uiHandler http.Handler = mux
+	switch cfg.uiAccess {
+	case "public":
+	case "local":
+		_, port, err := net.SplitHostPort(httpAddr)
+		if err != nil {
+			return fmt.Errorf("-http %q: %w", httpAddr, err)
+		}
+		httpAddr = net.JoinHostPort("127.0.0.1", port)
+	case "mesh":
+		uiHandler = meshOnly(nw.V4Prefix, nw.V6Prefix, mux)
+	default:
+		return fmt.Errorf("-ui-access must be public, local, or mesh (got %q)", cfg.uiAccess)
+	}
+
 	httpSrv := &http.Server{
 		Addr:              httpAddr,
-		Handler:           mux,
+		Handler:           uiHandler,
 		ReadHeaderTimeout: 10 * time.Second,
 		TLSConfig:         tlsConf,
 	}
@@ -267,8 +288,8 @@ func run(cfg config) error {
 		}()
 	}
 	go func() {
-		log.Printf("overmesh-server %s: web UI + API on %s://%s (network %q, %s + %s)",
-			version.Long(), scheme, httpAddr, nw.Name, nw.V4Prefix, nw.V6Prefix)
+		log.Printf("overmesh-server %s: web UI + API on %s://%s (access: %s; network %q, %s + %s)",
+			version.Long(), scheme, httpAddr, cfg.uiAccess, nw.Name, nw.V4Prefix, nw.V6Prefix)
 		var err error
 		if tlsConf != nil {
 			err = httpSrv.ListenAndServeTLS("", "")
@@ -292,6 +313,36 @@ func run(cfg config) error {
 	if relaySrv != nil {
 		_ = relaySrv.Shutdown(shutdownCtx)
 	}
-	grpcSrv.GracefulStop()
+	// GracefulStop alone would block forever: every connected daemon
+	// holds a long-lived netmap stream. Give in-flight RPCs a moment,
+	// then cut the streams so SIGTERM always terminates promptly.
+	stopped := make(chan struct{})
+	go func() { grpcSrv.GracefulStop(); close(stopped) }()
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		grpcSrv.Stop()
+	}
 	return nil
+}
+
+// meshOnly admits web UI/API requests only from overlay (mesh)
+// addresses or this machine itself. Spoofing an overlay source over
+// the internet would require completing a TCP handshake with an
+// address the internet won't route back — not practical — and
+// on-mesh sources are cryptokey-bound by WireGuard.
+func meshOnly(v4, v6 netip.Prefix, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err == nil {
+			if ip, perr := netip.ParseAddr(host); perr == nil {
+				ip = ip.Unmap()
+				if ip.IsLoopback() || v4.Contains(ip) || v6.Contains(ip) {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+		}
+		http.Error(w, "web UI is restricted to OverMesh (overlay) and local access (-ui-access mesh)", http.StatusForbidden)
+	})
 }

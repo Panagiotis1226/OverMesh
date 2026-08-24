@@ -102,6 +102,21 @@ Go (server, daemon, CLI, relay) · wireguard-go + wgctrl · pion/stun + pion/ice
 
 Full details, exit tests per phase, and design rationale: [`docs/PLAN.md`](docs/PLAN.md).
 
+## TODO
+
+Known issues and planned improvements from real-world testing:
+
+1. **Fix OverDrop inbox discoverability** — delivery itself works (the
+   file lands in `/var/lib/overmesh/overdrop/<sender>/`), but the macOS
+   app's "Open Folder" button doesn't open that location, so received
+   files are effectively invisible without the terminal (reproduced
+   macOS ↔ Debian Linux VM).
+2. **macOS app: make it Cmd+Tab switchable** — the app currently doesn't
+   appear in the Cmd+Tab app switcher at all.
+3. **macOS app: quitting the app should also stop `overmeshd`** — users
+   expect closing the app to shut everything down, not leave the daemon
+   running in the background for nothing.
+
 ## Development
 
 ```sh

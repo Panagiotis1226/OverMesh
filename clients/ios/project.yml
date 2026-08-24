@@ -40,6 +40,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.overmesh.OverMesh.PacketTunnel
+        # The Go runtime resolves DNS through libresolv (res_9_*).
+        OTHER_LDFLAGS: ["-lresolv"]
     info:
       path: PacketTunnel/Info.plist
       properties:

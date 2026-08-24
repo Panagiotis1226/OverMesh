@@ -2,7 +2,7 @@
 # Phase 9 exit test: the mobile core over a platform-provided TUN fd.
 #
 # om-mobileharness stands in for the iOS packet-tunnel app: it opens
-# /dev/net/tun itself, hands the fd to internal/mobilecore, and
+# /dev/net/tun itself, hands the fd to mobilecore, and
 # programs addresses/routes from the OnNetMap callback — exactly the
 # platform contract, minus Swift. Against it, a stock overmeshd peer:
 #

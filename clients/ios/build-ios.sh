@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds Mobilecore.xcframework (device + simulator) from
-# internal/mobilecore via gomobile. Run on macOS with Xcode installed.
+# mobilecore via gomobile. Run on macOS with Xcode installed.
 #
 #   clients/ios/build-ios.sh
 #
@@ -22,7 +22,7 @@ export PATH="$PWD/bin:$PATH"
 
 echo "==> gomobile bind (ios, iossimulator)"
 gomobile bind -target ios,iossimulator -iosversion 16.0 \
-  -o clients/ios/Mobilecore.xcframework ./internal/mobilecore
+  -o clients/ios/Mobilecore.xcframework ./mobilecore
 
 echo "==> done: clients/ios/Mobilecore.xcframework"
 echo "next: cd clients/ios && xcodegen generate && open OverMesh.xcodeproj"

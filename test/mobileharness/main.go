@@ -1,4 +1,4 @@
-// Command om-mobileharness exercises internal/mobilecore exactly the
+// Command om-mobileharness exercises mobilecore exactly the
 // way a mobile app does — but on Linux, where CI can prove the whole
 // path: it opens a TUN fd itself (the platform normally does this),
 // hands the fd to mobilecore, and programs addresses/routes from the
@@ -25,7 +25,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/panagiotis1226/overmesh/internal/mobilecore"
+	"github.com/panagiotis1226/overmesh/mobilecore"
 )
 
 type events struct {

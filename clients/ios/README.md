@@ -3,7 +3,7 @@
 A SwiftUI app plus an `NEPacketTunnelProvider` extension. All mesh
 logic — WireGuard, NAT holepunching, the guaranteed relay fallback,
 ACL packet filter, mesh DNS (`ps-iPhone` bare names), OverDrop
-receiving — lives in `internal/mobilecore` (Go), bound into
+receiving — lives in `mobilecore` (Go), bound into
 `Mobilecore.xcframework` with gomobile. The Swift layer is thin: it
 hands the utun file descriptor to the core and programs
 `NEPacketTunnelNetworkSettings` from the core's `OnNetMap` callback.

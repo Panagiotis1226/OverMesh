@@ -128,6 +128,9 @@ Known issues and planned improvements from real-world testing:
 3. **macOS app: quitting the app should also stop `overmeshd`** — users
    expect closing the app to shut everything down, not leave the daemon
    running in the background for nothing.
+4. **macOS app: option to run the server (`overmesh-server`) from
+   Settings** — so an entire OverMesh network (control plane + this
+   device) can be run through the GUI app alone, no terminal anywhere.
 
 ## Development
 

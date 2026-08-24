@@ -33,7 +33,9 @@ struct MenuContentView: View {
                 Text(err)
                     .font(.caption)
                     .foregroundStyle(.red)
-                    .lineLimit(3)
+                    .lineLimit(4)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
             }
             Divider()
             footer

@@ -18,9 +18,21 @@ sudo ./overmesh status
 sudo ./overmesh ping <other-device>
 ```
 
-For the internet: add `-tls-cert/-tls-key` (or a TLS reverse proxy),
-and keep the web UI private with `-http 127.0.0.1:8080` — nodes never
-need it.
+Putting the server on a public IP so devices can join from anywhere?
+Two decisions:
+
+1. **TLS**: add `-tls-cert <cert> -tls-key <key>` so the control plane
+   speaks HTTPS instead of plain HTTP.
+2. **Who can open the web UI** — one setting, your choice:
+
+   ```sh
+   -ui-access public   # UI reachable from anywhere (default)
+   -ui-access local    # UI only on the server machine itself
+   -ui-access mesh     # UI only from inside the VPN (+ the server machine)
+   ```
+
+Devices never use the UI port — they only need 41641/tcp, 3478/udp,
+and 41643/tcp (table below).
 
 ### Ports
 
@@ -29,7 +41,7 @@ need it.
 | 41641 | TCP | gRPC coordination (server) | **yes** — every node connects here |
 | 3478 | UDP | STUN (server) | **yes** for direct paths (relay still works without) |
 | 41643 | TCP | OMR relay, guaranteed fallback (server) | **yes** |
-| 8080 | TCP | web UI + API + metrics (server) | no — keep local/VPN-only |
+| 8080 | TCP | web UI + API + metrics (server) | your call — `-ui-access public|local|mesh` |
 | 41642 | UDP | WireGuard on every node | no — outbound holepunching suffices |
 | 41645, 53 | TCP/UDP | OverDrop + mesh DNS on every node | never — they bind the overlay IP only |
 

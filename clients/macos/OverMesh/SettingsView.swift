@@ -111,9 +111,19 @@ struct ProfileEditor: View {
                 }
                 TextField("Daemon socket", text: app.$socketPath)
                     .font(.system(.caption, design: .monospaced))
+                HStack {
+                    Text("Background service: \(app.daemonSvc.statusLabel)")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Uninstall Service") {
+                        Task { await app.daemonSvc.uninstall() }
+                    }
+                    .font(.caption)
+                }
             }
         }
         .formStyle(.grouped)
         .padding()
+        .onAppear { app.daemonSvc.refresh() }
     }
 }

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The bundled overmeshd, registered by the app via SMAppService
+     (one approval in System Settings, no password prompts). Runs as a
+     LaunchDaemon (root) with an admin-group-accessible control socket
+     so the menu bar app can drive it. -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.overmesh.overmeshd</string>
+	<key>BundleProgram</key>
+	<string>Contents/MacOS/overmeshd</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>overmeshd</string>
+		<string>-socket-group</string>
+		<string>admin</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/var/log/overmeshd.log</string>
+	<key>StandardErrorPath</key>
+	<string>/var/log/overmeshd.log</string>
+</dict>
+</plist>

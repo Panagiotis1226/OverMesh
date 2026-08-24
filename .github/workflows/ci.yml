@@ -270,20 +270,39 @@ jobs:
         run: sudo env "PATH=$PATH" test/integration/phase10.sh
 
   macos-app:
-    name: macOS menu bar app builds
+    name: macOS app (bundled daemon)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate project
         run: xcodegen generate
         working-directory: clients/macos
-      - name: Build (unsigned)
+      - name: Build (Release, embeds overmeshd + overmesh)
         run: |
           xcodebuild -project OverMesh.xcodeproj -scheme OverMesh \
-            -configuration Debug CODE_SIGNING_ALLOWED=NO build
+            -configuration Release -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO build
         working-directory: clients/macos
+      - name: Verify bundle, ad-hoc sign, zip
+        run: |
+          APP=build/Build/Products/Release/OverMesh.app
+          test -x "$APP/Contents/MacOS/overmeshd"
+          test -x "$APP/Contents/MacOS/overmesh"
+          test -f "$APP/Contents/Library/LaunchDaemons/com.overmesh.overmeshd.plist"
+          lipo -archs "$APP/Contents/MacOS/overmeshd" | grep -q arm64
+          codesign --force --deep -s - "$APP"
+          ditto -c -k --keepParent "$APP" OverMesh-macos.zip
+        working-directory: clients/macos
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: overmesh-macos-app
+          path: clients/macos/OverMesh-macos.zip
 
   windows:
     name: Phase 8 Windows (unit suite + smoke)

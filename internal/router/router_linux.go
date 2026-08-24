@@ -178,6 +178,11 @@ func restoreSysctl(path, old string) {
 	}
 }
 
+// SetBypassHosts is a no-op on Linux: the daemon's own flows carry
+// SocketMark and the policy rules already exempt them — no per-host
+// routes needed.
+func (e *ExitClient) SetBypassHosts([]netip.Addr) {}
+
 // --- ExitClient: send everything through a selected exit node --------
 
 // exitTable is the dedicated routing table holding "default via the

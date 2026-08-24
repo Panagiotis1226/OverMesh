@@ -32,6 +32,10 @@ app, click once, and the Mac is a mesh node:
    xattr -dr com.apple.quarantine /Applications/OverMesh.app
    ```
 
+   (`spctl -a` will still say "rejected" — that's Gatekeeper's verdict
+   on any non-notarized app and is only enforced while the quarantine
+   flag is present. Notarization arrives with an Apple Developer ID.)
+
 4. Open the app → click **Install OverMesh Service** → approve it in
    System Settings (Login Items & Extensions → Allow in Background).
    That registers the bundled `overmeshd` as a root launch daemon —
@@ -58,6 +62,14 @@ arm64+amd64) into the app bundle, and the LaunchDaemon plist ships in
 `Contents/Library/LaunchDaemons/`.
 
 ## Notes
+
+- The `overmesh` CLI ships inside the bundle as `overmesh-cli` (the
+  name `overmesh` would collide with the app's own `OverMesh` binary
+  on macOS's case-insensitive filesystem). For terminal use:
+
+  ```sh
+  sudo ln -s /Applications/OverMesh.app/Contents/MacOS/overmesh-cli /usr/local/bin/overmesh
+  ```
 
 - The service logs to `/var/log/overmeshd.log`.
 - Uninstall: Settings… → Uninstall Service (or delete the app after

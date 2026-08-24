@@ -138,11 +138,12 @@ SSO may return as a future phase.)
 - Tray app (WinUI or lightweight Go tray) mirroring the macOS feature set; MSI installer.
 - **Exit test:** Windows laptop behind NAT reaches Linux nodes direct, uses exit node, receives an OverDrop file.
 
-### Phase 9 — iOS + Android
+### Phase 9 — iOS (Android deferred)
 
-- Core engine compiled with **gomobile**; data plane = wireguard-go + **gVisor netstack** where TUN semantics differ; iOS **NetworkExtension (NEPacketTunnelProvider)** — mind the ~50 MB extension memory cap: netmap trimming, lazy allocations, no web-UI assets in the client; Android **VpnService** + Kotlin UI.
-- Battery discipline: push-based netmap (no polling), adaptive keepalives, idle relay connection coalescing.
-- **Exit test:** iPhone on LTE ↔ home Linux node direct or via relay; exit node works on both mobile OSes; app survives background/foreground cycles.
+- Shared mobile core (`mobilecore`) compiled with **gomobile**: the platform hands it an already-open TUN fd (`wgengine.Options.TUNFD`) and programs addresses/routes/DNS from the core's `OnNetMap` callback — no netstack needed, the real WireGuard data plane runs on the platform tunnel. iOS **NetworkExtension (NEPacketTunnelProvider)** in `clients/ios` — mind the ~50 MB extension memory cap: netmap trimming, lazy allocations, no web-UI assets in the client.
+- Battery discipline: push-based netmap (no polling), `SetForeground` widens keepalives when backgrounded, relay pings stay coalesced.
+- Android (VpnService + Kotlin UI over the same mobilecore) is deferred to a later phase — the fd contract is identical.
+- **Exit test:** the mobile core proven on Linux over a real TUN fd (`test/integration/phase9.sh`: join, bidirectional ping, bare-name DNS from the in-tunnel meshdns, OverDrop into the mobile inbox, relay fallback under UDP blackout); iPhone on LTE ↔ home Linux node direct or via relay, verified manually with the Xcode-built app.
 
 ### Phase 10 — Hardening & 1.0
 

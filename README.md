@@ -69,7 +69,7 @@ Go (server, daemon, CLI, relay) · wireguard-go + wgctrl · pion/stun + pion/ice
 | 6 | OverDrop file transfer + packaging (deb/rpm/docker/brew) + macOS menu bar scaffold |
 | 7 | User accounts (login/signup) + roles, node key rotation, audit log |
 | 8 | Windows client (service + Wintun + installer script) |
-| 9 | iOS + Android (gomobile + netstack) |
+| 9 | iOS client (gomobile core + packet tunnel); Android deferred to a later phase |
 | 10 | Hardening, metrics, HA, security review → 1.0 |
 
 Full details, exit tests per phase, and design rationale: [`docs/PLAN.md`](docs/PLAN.md).
@@ -77,11 +77,14 @@ Full details, exit tests per phase, and design rationale: [`docs/PLAN.md`](docs/
 ## Development
 
 ```sh
-make build       # all four binaries into ./bin (needs Go 1.25+)
+make build       # all four binaries into ./bin (needs Go 1.26+)
 make test        # unit tests with the race detector
 make tools proto # regenerate gRPC/protobuf code after editing proto/
 sudo test/lab/lab.sh up && sudo test/lab/lab.sh verify   # NAT lab (Linux)
 ```
+
+The iOS app (gomobile core + packet tunnel) builds on a Mac — see
+[`clients/ios/README.md`](clients/ios/README.md).
 
 Prebuilt binaries for linux/darwin × amd64/arm64 are attached to every CI
 run — GitHub → Actions → pick the latest run → Artifacts. The NAT lab is

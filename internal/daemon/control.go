@@ -104,6 +104,7 @@ func (d *Daemon) ServeControl(socketPath, groupName string) error {
 			Key             string   `json:"key"`
 			AdvertiseRoutes []string `json:"advertise_routes"`
 			ExitNode        string   `json:"exit_node"`
+			TLS             *bool    `json:"tls"` // null = keep last / daemon default
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			httpErr(w, http.StatusBadRequest, "bad request body")
@@ -118,6 +119,7 @@ func (d *Daemon) ServeControl(socketPath, groupName string) error {
 			SetupKey:        req.Key,
 			AdvertiseRoutes: req.AdvertiseRoutes,
 			ExitNode:        req.ExitNode,
+			UseTLS:          req.TLS,
 		})
 		if err != nil {
 			httpErr(w, http.StatusBadGateway, err.Error())
@@ -154,6 +156,30 @@ func (d *Daemon) ServeControl(socketPath, groupName string) error {
 			files = []overdrop.InboxFile{}
 		}
 		writeJSON(w, map[string]any{"dir": dir, "files": files})
+	})
+	mux.HandleFunc("POST /drop", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			File string `json:"file"`
+			Peer string `json:"peer"`
+			Port uint16 `json:"port"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			httpErr(w, http.StatusBadRequest, "bad request body")
+			return
+		}
+		if req.File == "" || req.Peer == "" {
+			httpErr(w, http.StatusBadRequest, "file and peer required")
+			return
+		}
+		id, err := d.StartDrop(req.File, req.Peer, req.Port)
+		if err != nil {
+			httpErr(w, http.StatusConflict, err.Error())
+			return
+		}
+		writeJSON(w, map[string]any{"id": id})
+	})
+	mux.HandleFunc("GET /transfers", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"transfers": d.Transfers()})
 	})
 	mux.HandleFunc("POST /rotatekey", func(w http.ResponseWriter, r *http.Request) {
 		if err := d.RotateNodeKey(); err != nil {

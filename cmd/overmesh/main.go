@@ -143,10 +143,19 @@ func cmdUp(args []string) error {
 	advRoutes := fs.String("advertise-routes", "", "comma-separated CIDRs to offer as a subnet router")
 	advExit := fs.Bool("advertise-exit-node", false, "offer to route ALL mesh traffic to the internet")
 	exitNode := fs.String("exit-node", "", "send all traffic through this peer (Linux)")
+	useTLS := fs.Bool("tls", false, "connect to the control plane over TLS (omit to keep the last choice)")
 	_ = fs.Parse(args)
 	if *server == "" {
 		return fmt.Errorf("-server is required")
 	}
+	// Only an explicitly passed -tls (true or false) overrides the
+	// daemon's remembered per-server choice.
+	var tlsReq *bool
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "tls" {
+			tlsReq = useTLS
+		}
+	})
 
 	var routes []string
 	for _, r := range strings.Split(*advRoutes, ",") {
@@ -161,6 +170,9 @@ func cmdUp(args []string) error {
 	req := map[string]any{
 		"server": *server, "key": *key,
 		"advertise_routes": routes, "exit_node": *exitNode,
+	}
+	if tlsReq != nil {
+		req["tls"] = *tlsReq
 	}
 	var st daemon.Status
 	if err := call(*socket, "POST", "/up", req, &st); err != nil {

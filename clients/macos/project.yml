@@ -1,0 +1,27 @@
+# XcodeGen spec for the OverMesh macOS menu bar app.
+# Generate with: xcodegen generate, then open OverMesh.xcodeproj.
+name: OverMesh
+options:
+  bundleIdPrefix: com.overmesh
+  deploymentTarget:
+    macOS: "14.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    CODE_SIGN_STYLE: Automatic
+targets:
+  OverMesh:
+    type: application
+    platform: macOS
+    sources: [OverMesh]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.overmesh.OverMeshMac
+        # Sandbox stays off: the app talks to overmeshd's root-owned
+        # unix socket and reads arbitrary files the user picks to drop.
+        ENABLE_APP_SANDBOX: NO
+    info:
+      path: OverMesh/Info.plist
+      properties:
+        CFBundleDisplayName: OverMesh
+        LSUIElement: true # menu bar only, no Dock icon

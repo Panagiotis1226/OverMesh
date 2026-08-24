@@ -14,7 +14,7 @@ struct MenuContentView: View {
                 daemonHelp
             } else {
                 selfInfo
-                if !app.peers.isEmpty {
+                if app.isUp {
                     Divider()
                     devices
                 }
@@ -119,8 +119,15 @@ struct MenuContentView: View {
     private var devices: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Devices").font(.caption).foregroundStyle(.secondary)
-            ForEach(app.peers) { peer in
-                PeerRow(peer: peer)
+            if app.peers.isEmpty {
+                Text("No other devices yet. Join one with a setup key from the web UI and it appears here — each row gets a \(Image(systemName: "paperplane")) button (or drag a file onto it) to send with OverDrop.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ForEach(app.peers) { peer in
+                    PeerRow(peer: peer)
+                }
             }
         }
     }

@@ -256,6 +256,19 @@ jobs:
       - name: Join, ping, DNS, OverDrop, relay via mobilecore
         run: sudo env "PATH=$PATH" test/integration/phase9.sh
 
+  hardening:
+    name: Phase 10 ops hardening
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build binaries
+        run: make build
+      - name: Private UI, metrics, netcheck, server-kill survival, backup/restore
+        run: sudo env "PATH=$PATH" test/integration/phase10.sh
+
   windows:
     name: Phase 8 Windows (unit suite + smoke)
     runs-on: windows-latest

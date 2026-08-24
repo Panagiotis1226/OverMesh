@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/nacl/box"
@@ -17,8 +18,32 @@ import (
 type Server struct {
 	logf func(string, ...any)
 
+	framesForwarded atomic.Int64
+	bytesForwarded  atomic.Int64
+	framesDropped   atomic.Int64
+
 	mu    sync.Mutex
 	conns map[[32]byte]*serverConn // node public key -> newest connection
+}
+
+// Stats is a point-in-time snapshot of the relay's forwarding counters.
+type Stats struct {
+	Clients         int
+	FramesForwarded int64
+	BytesForwarded  int64
+	FramesDropped   int64
+}
+
+func (s *Server) Stats() Stats {
+	s.mu.Lock()
+	clients := len(s.conns)
+	s.mu.Unlock()
+	return Stats{
+		Clients:         clients,
+		FramesForwarded: s.framesForwarded.Load(),
+		BytesForwarded:  s.bytesForwarded.Load(),
+		FramesDropped:   s.framesDropped.Load(),
+	}
 }
 
 // NewServer builds a relay server.
@@ -163,7 +188,10 @@ func (s *Server) forward(src, dst [32]byte, payload []byte) {
 	copy(body[32:], payload)
 	select {
 	case target.sendq <- outFrame{typ: frameRecv, body: body}:
+		s.framesForwarded.Add(1)
+		s.bytesForwarded.Add(int64(len(payload)))
 	default: // queue full: drop (never stall the relay on one client)
+		s.framesDropped.Add(1)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	overmeshv1 "github.com/panagiotis1226/overmesh/gen/overmeshv1"
 	"github.com/panagiotis1226/overmesh/internal/ipam"
@@ -33,6 +34,8 @@ type Coordinator struct {
 	// "<network>.<DNSBase>". Empty disables overlay DNS. Set once at
 	// startup.
 	DNSBase string
+
+	netmapPushes atomic.Int64 // netmaps handed to subscriber channels
 
 	mu      sync.Mutex
 	ipams   map[int64]*ipam.Allocator                 // networkID -> allocator
@@ -318,6 +321,22 @@ func (c *Coordinator) Online(nodeID int64) bool {
 	return c.online[nodeID]
 }
 
+// OnlineCount reports how many nodes hold an open netmap stream.
+func (c *Coordinator) OnlineCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for _, up := range c.online {
+		if up {
+			n++
+		}
+	}
+	return n
+}
+
+// NetmapPushes reports the total netmaps pushed to subscribers.
+func (c *Coordinator) NetmapPushes() int64 { return c.netmapPushes.Load() }
+
 // notifyNetworkLocked recomputes and pushes a netmap to every subscribed
 // node in the network. Held: c.mu.
 func (c *Coordinator) notifyNetworkLocked(networkID int64) {
@@ -341,6 +360,7 @@ func (c *Coordinator) notifyNetworkLocked(networkID int64) {
 		// catches up on the next push (maps are complete, not deltas).
 		select {
 		case ch <- nm:
+			c.netmapPushes.Add(1)
 		default:
 		}
 	}

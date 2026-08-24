@@ -167,6 +167,9 @@ type Daemon struct {
 	// netmap, so key rotation can rebuild the relay client (it
 	// authenticates with the node key).
 	lastRelays []string
+	// lastStun: resolved STUN servers from the latest netmap, kept for
+	// netcheck probes.
+	lastStun []string
 }
 
 // New loads state and returns a Daemon (not yet connected).
@@ -473,6 +476,7 @@ func (d *Daemon) applyNetMap(nm *overmeshv1.NetMap, eng wgengine.Engine, cm *mag
 	}
 
 	d.mu.Lock()
+	d.lastStun = append(d.lastStun[:0], stunHosts...)
 	seen := make(map[uint64]bool)
 	online := make(map[uint64]bool)
 	for _, p := range nm.GetPeers() {
